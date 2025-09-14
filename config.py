@@ -1,70 +1,61 @@
-"""
-Configuration Management Module for Ecommerce Dashboard
-Handles API configurations for WooCommerce and Meta APIs
-"""
-
+# config.py - 配置管理
 import streamlit as st
 import os
-from typing import Dict, Any, Optional, Tuple
-
+from typing import Optional, Tuple, Dict, Any
 
 class Config:
-    """Configuration management class for API settings"""
+    """安全配置管理類"""
     
     def __init__(self):
-        self.woocommerce_config = None
-        self.meta_config = None
-        self._load_secrets()
+        """初始化配置"""
+        self.woocommerce_config = self._load_woocommerce_config()
+        self.meta_config = self._load_meta_config()
     
-    def _load_secrets(self):
-        """Load configuration from Streamlit secrets"""
+    def _load_woocommerce_config(self) -> Dict[str, str]:
+        """載入 WooCommerce 配置"""
         try:
-            # WooCommerce configuration
+            # 優先從 Streamlit secrets 讀取
             if hasattr(st, 'secrets') and 'woocommerce' in st.secrets:
-                self.woocommerce_config = {
-                    'url': st.secrets.woocommerce.get('url', ''),
-                    'consumer_key': st.secrets.woocommerce.get('consumer_key', ''),
-                    'consumer_secret': st.secrets.woocommerce.get('consumer_secret', ''),
-                    'version': st.secrets.woocommerce.get('version', 'wc/v3')
+                return {
+                    'url': st.secrets.woocommerce.url,
+                    'consumer_key': st.secrets.woocommerce.consumer_key,
+                    'consumer_secret': st.secrets.woocommerce.consumer_secret
                 }
-            
-            # Meta API configuration
+        except Exception:
+            pass
+        
+        # 備用：從環境變數讀取
+        return {
+            'url': os.getenv('WC_URL', ''),
+            'consumer_key': os.getenv('WC_CONSUMER_KEY', ''),
+            'consumer_secret': os.getenv('WC_CONSUMER_SECRET', '')
+        }
+    
+    def _load_meta_config(self) -> Dict[str, str]:
+        """載入 Meta 配置"""
+        try:
+            # 優先從 Streamlit secrets 讀取
             if hasattr(st, 'secrets') and 'meta' in st.secrets:
-                self.meta_config = {
-                    'access_token': st.secrets.meta.get('access_token', ''),
-                    'app_id': st.secrets.meta.get('app_id', ''),
-                    'app_secret': st.secrets.meta.get('app_secret', ''),
-                    'ad_account_id': st.secrets.meta.get('ad_account_id', ''),
-                    'api_version': st.secrets.meta.get('api_version', 'v18.0')
+                return {
+                    'app_id': st.secrets.meta.app_id,
+                    'app_secret': st.secrets.meta.app_secret,
+                    'account_id': st.secrets.meta.account_id,
+                    'long_lived_token': st.secrets.meta.get('long_lived_token', '')
                 }
-        except Exception as e:
-            st.warning(f"Error loading secrets: {str(e)}")
-    
-    def get_woocommerce_config(self) -> Dict[str, Any]:
-        """
-        Get WooCommerce API configuration from secrets
+        except Exception:
+            pass
         
-        Returns:
-            Dict containing WooCommerce API settings
-        """
-        if self.woocommerce_config:
-            return self.woocommerce_config.copy()
-        return {}
-    
-    def get_meta_config(self) -> Dict[str, Any]:
-        """
-        Get Meta API configuration from secrets
-        
-        Returns:
-            Dict containing Meta API settings
-        """
-        if self.meta_config:
-            return self.meta_config.copy()
-        return {}
+        # 備用：從環境變數讀取
+        return {
+            'app_id': os.getenv('META_APP_ID', ''),
+            'app_secret': os.getenv('META_APP_SECRET', ''),
+            'account_id': os.getenv('META_ACCOUNT_ID', ''),
+            'long_lived_token': os.getenv('META_LONG_LIVED_TOKEN', '')
+        }
     
     def is_configured(self) -> Tuple[bool, bool]:
         """
-        Check if APIs are configured
+        檢查 API 是否已配置
         
         Returns:
             Tuple of (woocommerce_configured, meta_configured)
@@ -78,193 +69,75 @@ class Config:
         
         meta_configured = (
             self.meta_config and
-            self.meta_config.get('access_token') and
             self.meta_config.get('app_id') and
-            self.meta_config.get('app_secret')
+            self.meta_config.get('app_secret') and
+            self.meta_config.get('account_id')
         )
         
         return woocommerce_configured, meta_configured
-
-
-def setup_api_connections() -> Dict[str, Any]:
-    """
-    Setup API connections with configuration check and manual input options
     
-    Returns:
-        Dict containing connection status and configurations
-    """
+    def get_woocommerce_config(self) -> Dict[str, str]:
+        """獲取 WooCommerce 配置"""
+        return self.woocommerce_config.copy()
+    
+    def get_meta_config(self) -> Dict[str, str]:
+        """獲取 Meta 配置"""
+        return self.meta_config.copy()
+
+def setup_api_connections():
+    """設置 API 連接"""
     config = Config()
-    woocommerce_configured, meta_configured = config.is_configured()
+    wc_configured, meta_configured = config.is_configured()
     
-    # Initialize session state for manual configurations
-    if 'manual_woocommerce_config' not in st.session_state:
-        st.session_state.manual_woocommerce_config = {}
-    if 'manual_meta_config' not in st.session_state:
-        st.session_state.manual_meta_config = {}
-    
-    connection_status = {
-        'woocommerce_configured': woocommerce_configured,
-        'meta_configured': meta_configured,
-        'woocommerce_config': config.get_woocommerce_config(),
-        'meta_config': config.get_meta_config()
-    }
-    
-    # Display configuration status
-    st.subheader("🔧 API Configuration Status")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if woocommerce_configured:
-            st.success("✅ WooCommerce API configured")
-        else:
-            st.error("❌ WooCommerce API not configured")
-    
-    with col2:
-        if meta_configured:
-            st.success("✅ Meta API configured")
-        else:
-            st.error("❌ Meta API not configured")
-    
-    # Manual configuration section
-    if not woocommerce_configured or not meta_configured:
-        st.subheader("📝 Manual Configuration")
-        st.info("Configure APIs manually if secrets are not available")
+    # 如果沒有配置，顯示手動輸入選項
+    if not wc_configured or not meta_configured:
+        st.sidebar.warning("⚠️ 請配置 API 設定")
         
-        # WooCommerce manual configuration
-        if not woocommerce_configured:
-            st.subheader("🛒 WooCommerce API Setup")
-            with st.expander("WooCommerce Configuration", expanded=True):
-                woocommerce_url = st.text_input(
-                    "Store URL",
-                    value=st.session_state.manual_woocommerce_config.get('url', ''),
-                    help="Your WooCommerce store URL (e.g., https://yourstore.com)"
-                )
-                woocommerce_key = st.text_input(
-                    "Consumer Key",
-                    value=st.session_state.manual_woocommerce_config.get('consumer_key', ''),
-                    type="password"
-                )
-                woocommerce_secret = st.text_input(
-                    "Consumer Secret",
-                    value=st.session_state.manual_woocommerce_config.get('consumer_secret', ''),
-                    type="password"
-                )
-                woocommerce_version = st.selectbox(
-                    "API Version",
-                    options=['wc/v3', 'wc/v2', 'wc/v1'],
-                    index=0
-                )
+        # 顯示手動輸入選項（開發/測試用）
+        if st.sidebar.checkbox("手動輸入 API 設定（僅供測試）"):
+            with st.sidebar.expander("WooCommerce API", expanded=not wc_configured):
+                manual_wc_url = st.text_input("商店網址", placeholder="https://your-store.com", key="manual_wc_url")
+                manual_wc_key = st.text_input("Consumer Key", type="password", key="manual_wc_key")
+                manual_wc_secret = st.text_input("Consumer Secret", type="password", key="manual_wc_secret")
                 
-                if st.button("Save WooCommerce Config"):
-                    st.session_state.manual_woocommerce_config = {
-                        'url': woocommerce_url,
-                        'consumer_key': woocommerce_key,
-                        'consumer_secret': woocommerce_secret,
-                        'version': woocommerce_version
+                if manual_wc_url and manual_wc_key and manual_wc_secret:
+                    # 臨時存儲到 session state
+                    st.session_state.manual_wc_config = {
+                        'url': manual_wc_url,
+                        'consumer_key': manual_wc_key,
+                        'consumer_secret': manual_wc_secret
                     }
-                    st.success("WooCommerce configuration saved!")
-                    st.rerun()
-        
-        # Meta API manual configuration
-        if not meta_configured:
-            st.subheader("📱 Meta API Setup")
-            with st.expander("Meta API Configuration", expanded=True):
-                meta_token = st.text_input(
-                    "Access Token",
-                    value=st.session_state.manual_meta_config.get('access_token', ''),
-                    type="password",
-                    help="Your Meta API access token"
-                )
-                meta_app_id = st.text_input(
-                    "App ID",
-                    value=st.session_state.manual_meta_config.get('app_id', '')
-                )
-                meta_app_secret = st.text_input(
-                    "App Secret",
-                    value=st.session_state.manual_meta_config.get('app_secret', ''),
-                    type="password"
-                )
-                meta_ad_account = st.text_input(
-                    "Ad Account ID",
-                    value=st.session_state.manual_meta_config.get('ad_account_id', ''),
-                    help="Your Meta Ad Account ID"
-                )
-                meta_version = st.selectbox(
-                    "API Version",
-                    options=['v18.0', 'v17.0', 'v16.0'],
-                    index=0
-                )
+                    wc_configured = True
+            
+            with st.sidebar.expander("Meta API", expanded=not meta_configured):
+                manual_meta_app_id = st.text_input("App ID", key="manual_meta_app_id")
+                manual_meta_secret = st.text_input("App Secret", type="password", key="manual_meta_secret")
+                manual_meta_account = st.text_input("Account ID", placeholder="act_xxxxxxxxx", key="manual_meta_account")
                 
-                if st.button("Save Meta Config"):
+                if manual_meta_app_id and manual_meta_secret and manual_meta_account:
                     st.session_state.manual_meta_config = {
-                        'access_token': meta_token,
-                        'app_id': meta_app_id,
-                        'app_secret': meta_app_secret,
-                        'ad_account_id': meta_ad_account,
-                        'api_version': meta_version
+                        'app_id': manual_meta_app_id,
+                        'app_secret': manual_meta_secret,
+                        'account_id': manual_meta_account,
+                        'long_lived_token': ''
                     }
-                    st.success("Meta API configuration saved!")
-                    st.rerun()
+                    meta_configured = True
     
-    return connection_status
+    return wc_configured, meta_configured
 
-
-def get_active_config() -> Dict[str, Any]:
-    """
-    Get current active configuration (prioritizes secrets, falls back to manual input)
-    
-    Returns:
-        Dict containing active configurations for both APIs
-    """
+def get_active_config():
+    """獲取當前活動配置"""
     config = Config()
-    woocommerce_configured, meta_configured = config.is_configured()
     
-    # Get WooCommerce config (secrets first, then manual)
-    woocommerce_config = config.get_woocommerce_config()
-    if not woocommerce_configured and 'manual_woocommerce_config' in st.session_state:
-        woocommerce_config = st.session_state.manual_woocommerce_config
-    
-    # Get Meta config (secrets first, then manual)
+    # 獲取基本配置
+    wc_config = config.get_woocommerce_config()
     meta_config = config.get_meta_config()
-    if not meta_configured and 'manual_meta_config' in st.session_state:
-        meta_config = st.session_state.manual_meta_config
     
-    return {
-        'woocommerce': woocommerce_config,
-        'meta': meta_config,
-        'woocommerce_configured': woocommerce_configured or bool(woocommerce_config.get('url')),
-        'meta_configured': meta_configured or bool(meta_config.get('access_token'))
-    }
-
-
-def validate_config(config_dict: Dict[str, Any], api_type: str) -> bool:
-    """
-    Validate configuration dictionary
+    # 如果有手動輸入的配置，使用手動配置覆蓋
+    if hasattr(st.session_state, 'manual_wc_config') and st.session_state.manual_wc_config:
+        wc_config.update(st.session_state.manual_wc_config)
     
-    Args:
-        config_dict: Configuration dictionary to validate
-        api_type: Type of API ('woocommerce' or 'meta')
+    if hasattr(st.session_state, 'manual_meta_config') and st.session_state.manual_meta_config:
+        meta_config.update(st.session_state.manual_meta_config)
     
-    Returns:
-        True if configuration is valid, False otherwise
-    """
-    if api_type == 'woocommerce':
-        required_fields = ['url', 'consumer_key', 'consumer_secret']
-        return all(config_dict.get(field) for field in required_fields)
-    
-    elif api_type == 'meta':
-        required_fields = ['access_token', 'app_id', 'app_secret']
-        return all(config_dict.get(field) for field in required_fields)
-    
-    return False
-
-
-def clear_manual_config():
-    """Clear manual configuration from session state"""
-    if 'manual_woocommerce_config' in st.session_state:
-        del st.session_state.manual_woocommerce_config
-    if 'manual_meta_config' in st.session_state:
-        del st.session_state.manual_meta_config
-    st.success("Manual configurations cleared!")
-    st.rerun()
+    return wc_config, meta_config
