@@ -1,3 +1,4 @@
+# app.py - 電商業績分析儀表板主程式
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -7,9 +8,15 @@ import requests
 from requests.auth import HTTPBasicAuth
 import numpy as np
 
-# Import custom modules
-from config import setup_api_connections, get_active_config
-from meta_api_enhanced import get_enhanced_meta_ads_data, show_token_management
+# 導入我們的安全配置模組
+try:
+    from config import Config, setup_api_connections, get_active_config
+    from meta_api_enhanced import get_enhanced_meta_ads_data, show_token_management
+    SECURE_MODE = True
+except ImportError:
+    # 如果模組不存在，回退到原始模式
+    SECURE_MODE = False
+    st.warning("⚠️ 安全配置模組未找到，使用基本模式")
 
 # 頁面設定
 st.set_page_config(
@@ -19,7 +26,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS 樣式 - 移除箭頭和邊框
+# CSS 樣式
 st.markdown("""
 <style>
     .main-header {
@@ -57,6 +64,26 @@ st.markdown("""
         display: none !important;
         visibility: hidden !important;
     }
+    
+    .secure-mode {
+        background: linear-gradient(90deg, #059669 0%, #10b981 100%);
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        display: inline-block;
+        margin-bottom: 1rem;
+    }
+    
+    .basic-mode {
+        background: linear-gradient(90deg, #d97706 0%, #f59e0b 100%);
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        display: inline-block;
+        margin-bottom: 1rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -80,13 +107,45 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# 顯示運行模式
+if SECURE_MODE:
+    st.markdown('<div class="secure-mode">🔒 安全模式：API 金鑰已加密保護</div>', unsafe_allow_html=True)
+else:
+    st.markdown('<div class="basic-mode">⚠️ 基本模式：請手動輸入 API 設定</div>', unsafe_allow_html=True)
+
 # 側邊欄
 with st.sidebar:
     st.header("設定面板")
     st.markdown("---")
     
-    # Setup API connections using the configuration management system
-    connection_status = setup_api_connections()
+    # 根據模式使用不同的配置方式
+    if SECURE_MODE:
+        wc_configured, meta_configured = setup_api_connections()
+    else:
+        # 基本模式：手動輸入
+        st.subheader("WooCommerce 設定")
+        with st.expander("API 連接設定", expanded=True):
+            wc_url = st.text_input("商店網址", value="", placeholder="https://your-store.com")
+            wc_key = st.text_input("Consumer Key", type="password")
+            wc_secret = st.text_input("Consumer Secret", type="password")
+        
+        st.subheader("Meta 廣告設定")
+        with st.expander("API 連接設定", expanded=False):
+            meta_token = st.text_input("存取權杖", type="password")
+            meta_account_id = st.text_input("廣告帳號 ID", placeholder="act_xxxxxxxxx")
+        
+        wc_configured = bool(wc_url and wc_key and wc_secret)
+        meta_configured = bool(meta_token and meta_account_id)
+    
+    st.markdown("---")
+    st.subheader("連接狀態")
+    st.write(f"WooCommerce: {'🟢 已連接' if wc_configured else '🔴 未連接'}")
+    st.write(f"Meta 廣告: {'🟢 已連接' if meta_configured else '🔴 未連接'}")
+    
+    # 在安全模式下顯示 Token 管理
+    if SECURE_MODE and meta_configured:
+        with st.expander("🔑 Token 管理", expanded=False):
+            show_token_management()
     
     st.markdown("---")
     st.subheader("成本設定")
@@ -96,22 +155,6 @@ with st.sidebar:
     date_range = st.date_input("選擇日期範圍", 
                                value=(datetime.now() - timedelta(days=30), datetime.now()),
                                max_value=datetime.now())
-    
-    # Get active configuration
-    active_config = get_active_config()
-    wc_configured = active_config.get('woocommerce_configured', False)
-    meta_configured = active_config.get('meta_configured', False)
-    
-    st.markdown("---")
-    st.subheader("連接狀態")
-    st.write(f"WooCommerce: {'🟢 已連接' if wc_configured else '🔴 未連接'}")
-    st.write(f"Meta 廣告: {'🟢 已連接' if meta_configured else '🔴 未連接'}")
-    
-    # Add token management section
-    if meta_configured:
-        st.markdown("---")
-        with st.expander("🔑 Meta Token 管理", expanded=False):
-            show_token_management()
 
 # 計算函數
 def calculate_shipping_costs(shipping_methods):
@@ -203,29 +246,66 @@ def get_enhanced_woocommerce_data(url, key, secret, start_date, end_date):
         st.error(f"WooCommerce 連接錯誤: {str(e)}")
         return pd.DataFrame(), {}, {}
 
+def get_meta_ads_data_basic(token, account_id, start_date, end_date):
+    try:
+        if not account_id.startswith('act_'): account_id = f"act_{account_id}"
+        url = f"https://graph.facebook.com/v21.0/{account_id}/insights"
+        params = {
+            'access_token': token, 'fields': 'spend,impressions,clicks,reach,frequency,cpm,cpc,ctr',
+            'time_range': f'{{"since":"{start_date.strftime("%Y-%m-%d")}","until":"{end_date.strftime("%Y-%m-%d")}"}}',
+            'level': 'account', 'time_increment': 1
+        }
+        
+        with st.spinner("正在獲取 Meta 廣告數據..."):
+            response = requests.get(url, params=params, timeout=30)
+            if response.status_code == 200:
+                data = response.json()
+                processed_data = []
+                for item in data.get('data', []):
+                    processed_data.append({
+                        'date': pd.to_datetime(item['date_start']).date(),
+                        'spend': float(item.get('spend', 0)), 'impressions': int(item.get('impressions', 0)),
+                        'clicks': int(item.get('clicks', 0)), 'reach': int(item.get('reach', 0)),
+                        'ctr': float(item.get('ctr', 0)), 'cpm': float(item.get('cpm', 0)), 'cpc': float(item.get('cpc', 0))
+                    })
+                df = pd.DataFrame(processed_data)
+                st.success(f"成功獲取 {len(processed_data)} 筆 Meta 廣告數據")
+                return df
+            else:
+                st.error(f"Meta 廣告 API 錯誤: {response.text}")
+                return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Meta 廣告連接錯誤: {str(e)}")
+        return pd.DataFrame()
 
-# 主要分析
+# 主要分析邏輯
 if len(date_range) == 2:
     start_date, end_date = date_range
     
     if wc_configured or meta_configured:
         orders_df, payment_methods, shipping_methods, ads_df = pd.DataFrame(), {}, {}, pd.DataFrame()
         
+        # WooCommerce 數據獲取
         if wc_configured:
-            # Get WooCommerce configuration
-            wc_config = active_config.get('woocommerce', {})
-            orders_df, payment_methods, shipping_methods = get_enhanced_woocommerce_data(
-                wc_config.get('url', ''), 
-                wc_config.get('consumer_key', ''), 
-                wc_config.get('consumer_secret', ''), 
-                start_date, 
-                end_date
-            )
-        if meta_configured:
-            # Use enhanced Meta API client
-            meta_config = active_config.get('meta', {})
-            ads_df = get_enhanced_meta_ads_data(meta_config, date_preset='last_30d', level='campaign')
+            if SECURE_MODE:
+                wc_config, _ = get_active_config()
+                orders_df, payment_methods, shipping_methods = get_enhanced_woocommerce_data(
+                    wc_config['url'], wc_config['consumer_key'], wc_config['consumer_secret'], start_date, end_date
+                )
+            else:
+                orders_df, payment_methods, shipping_methods = get_enhanced_woocommerce_data(
+                    wc_url, wc_key, wc_secret, start_date, end_date
+                )
         
+        # Meta 廣告數據獲取
+        if meta_configured:
+            if SECURE_MODE:
+                _, meta_config = get_active_config()
+                ads_df = get_enhanced_meta_ads_data(meta_config, start_date, end_date)
+            else:
+                ads_df = get_meta_ads_data_basic(meta_token, meta_account_id, start_date, end_date)
+        
+        # 如果有數據，繼續分析
         if not orders_df.empty or not ads_df.empty:
             # 計算基本指標
             if not orders_df.empty:
@@ -291,7 +371,7 @@ if len(date_range) == 2:
                     fig_cost = px.pie(cost_df, values='金額', names='成本類型', title='成本結構分布')
                     fig_cost.update_traces(textposition='inside', textinfo='percent+label')
                     fig_cost.update_layout(height=400)
-                    st.plotly_chart(fig_cost, use_container_width=True)
+                    st.plotly_chart(fig_cost, width="stretch")
             
             with col2:
                 financial_summary = {'總營收': total_revenue, '總成本': total_all_costs, '估計淨利': estimated_net_profit}
@@ -299,7 +379,7 @@ if len(date_range) == 2:
                 fig_summary = px.bar(summary_df, x='項目', y='金額', title='營收、成本與獲利比較',
                                    color='金額', color_continuous_scale=['red', 'yellow', 'green'])
                 fig_summary.update_layout(height=400, showlegend=False)
-                st.plotly_chart(fig_summary, use_container_width=True)
+                st.plotly_chart(fig_summary, width="stretch")
             
             # 付款方式分析
             if payment_methods:
@@ -316,14 +396,14 @@ if len(date_range) == 2:
                         })
                     payment_df = pd.DataFrame(payment_data).sort_values('訂單數', ascending=False)
                     st.subheader("付款方式統計")
-                    st.dataframe(payment_df, use_container_width=True, hide_index=True)
+                    st.dataframe(payment_df, width=None, hide_index=True)
                 
                 with col2:
                     payment_chart_df = pd.DataFrame(list(payment_methods.items()), columns=['付款方式', '訂單數'])
                     fig_payment = px.pie(payment_chart_df, values='訂單數', names='付款方式', title='付款方式分布')
                     fig_payment.update_traces(textposition='inside', textinfo='percent+label')
                     fig_payment.update_layout(height=400, showlegend=False)
-                    st.plotly_chart(fig_payment, use_container_width=True)
+                    st.plotly_chart(fig_payment, width="stretch")
             
             # 運送方式分析
             if shipping_methods:
@@ -339,14 +419,14 @@ if len(date_range) == 2:
                         })
                     shipping_df = pd.DataFrame(shipping_data).sort_values('訂單數', ascending=False)
                     st.subheader("運送方式統計")
-                    st.dataframe(shipping_df, use_container_width=True, hide_index=True)
+                    st.dataframe(shipping_df, width=None, hide_index=True)
                 
                 with col2:
                     shipping_chart_df = pd.DataFrame(list(shipping_methods.items()), columns=['運送方式', '訂單數'])
                     fig_shipping = px.bar(shipping_chart_df, x='運送方式', y='訂單數', title='運送方式偏好',
                                         color='訂單數', color_continuous_scale='Blues')
                     fig_shipping.update_layout(xaxis_tickangle=-45, height=400, showlegend=False)
-                    st.plotly_chart(fig_shipping, use_container_width=True)
+                    st.plotly_chart(fig_shipping, width="stretch")
             
             # 趨勢分析
             st.header("趨勢分析")
@@ -382,7 +462,7 @@ if len(date_range) == 2:
                 fig1 = px.line(merged_df, x='date', y=['revenue', 'spend'], title='每日營收 vs 廣告支出',
                               labels={'value': '金額 ($)', 'variable': '指標'})
                 fig1.update_layout(height=400)
-                st.plotly_chart(fig1, use_container_width=True)
+                st.plotly_chart(fig1, width="stretch")
             
             with col2:
                 if not merged_df.empty and 'roas' in merged_df.columns:
@@ -390,7 +470,7 @@ if len(date_range) == 2:
                     fig2.add_hline(y=1, line_dash="dash", line_color="red", annotation_text="損益平衡")
                     fig2.add_hline(y=3, line_dash="dot", line_color="green", annotation_text="目標值")
                     fig2.update_layout(height=400)
-                    st.plotly_chart(fig2, use_container_width=True)
+                    st.plotly_chart(fig2, width="stretch")
             
             # 每日淨利圖表
             st.subheader("每日估計淨利分析")
@@ -399,140 +479,7 @@ if len(date_range) == 2:
                          labels={'estimated_net_profit': '估計淨利 ($)', 'date': '日期'})
             fig3.add_hline(y=0, line_dash="solid", line_color="black", annotation_text="損益平衡線")
             fig3.update_layout(height=450)
-            st.plotly_chart(fig3, use_container_width=True)
-            
-            # 淨利統計摘要
-            if not merged_df.empty:
-                st.markdown("### 淨利統計摘要")
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    avg_daily_profit = merged_df['estimated_net_profit'].mean()
-                    st.metric("平均每日淨利", f"${avg_daily_profit:,.0f}")
-                with col2:
-                    max_daily_profit = merged_df['estimated_net_profit'].max()
-                    best_day = merged_df[merged_df['estimated_net_profit'] == max_daily_profit]['date'].iloc[0]
-                    st.metric("最高單日淨利", f"${max_daily_profit:,.0f}")
-                    st.caption(f"日期: {best_day}")
-                with col3:
-                    min_daily_profit = merged_df['estimated_net_profit'].min()
-                    worst_day = merged_df[merged_df['estimated_net_profit'] == min_daily_profit]['date'].iloc[0]
-                    st.metric("最低單日淨利", f"${min_daily_profit:,.0f}")
-                    st.caption(f"日期: {worst_day}")
-                with col4:
-                    profitable_days = len(merged_df[merged_df['estimated_net_profit'] > 0])
-                    total_days = len(merged_df)
-                    profit_rate = (profitable_days / total_days * 100) if total_days > 0 else 0
-                    st.metric("獲利天數比例", f"{profit_rate:.1f}%")
-                    st.caption(f"{profitable_days}/{total_days} 天")
-            
-            # 詳細數據表格
-            if st.checkbox("顯示詳細數據"):
-                st.header("詳細分析數據")
-                tab1, tab2, tab3, tab4, tab5 = st.tabs(["每日營收與成本", "每日績效", "訂單明細", "廣告績效", "成本明細"])
-                
-                with tab1:
-                    if 'merged_df' in locals() and not merged_df.empty:
-                        daily_cost_df = merged_df[['date', 'revenue', 'estimated_cogs', 'daily_shipping_cost', 
-                                                 'daily_payment_fee', 'spend', 'business_tax', 'estimated_net_profit']].copy()
-                        for col in ['revenue', 'estimated_cogs', 'daily_shipping_cost', 'daily_payment_fee', 'spend', 'business_tax', 'estimated_net_profit']:
-                            daily_cost_df[col] = daily_cost_df[col].apply(lambda x: f"${x:,.2f}")
-                        daily_cost_df = daily_cost_df.rename(columns={
-                            'date': '日期', 'revenue': '營收', 'estimated_cogs': '估計進貨成本',
-                            'daily_shipping_cost': '運費', 'daily_payment_fee': '金流服務費',
-                            'spend': '廣告費', 'business_tax': '營業稅', 'estimated_net_profit': '估計淨利'
-                        })
-                        st.dataframe(daily_cost_df, use_container_width=True, hide_index=True)
-                        st.info("💡 提示：運費和金流服務費按日平均分配計算")
-                
-                with tab2:
-                    if 'merged_df' in locals() and not merged_df.empty:
-                        display_df = merged_df[['date', 'revenue', 'spend', 'roas']].copy()
-                        for col in ['revenue', 'spend']:
-                            display_df[col] = display_df[col].apply(lambda x: f"${x:,.2f}")
-                        display_df['roas'] = display_df['roas'].apply(lambda x: f"{x:.2f}")
-                        display_df = display_df.rename(columns={'date': '日期', 'revenue': '營收', 'spend': '廣告支出', 'roas': 'ROAS'})
-                        st.dataframe(display_df, use_container_width=True, hide_index=True)
-                
-                with tab3:
-                    if not orders_df.empty:
-                        display_orders = orders_df.copy()
-                        display_orders['total'] = display_orders['total'].apply(lambda x: f"${x:.2f}")
-                        display_orders = display_orders.rename(columns={
-                            'order_id': '訂單ID', 'date': '日期', 'total': '金額', 'status': '狀態',
-                            'customer_id': '客戶ID', 'payment_method': '付款方式', 'shipping_method': '運送方式'
-                        })
-                        st.dataframe(display_orders, use_container_width=True, hide_index=True)
-                
-                with tab4:
-                    if not ads_df.empty:
-                        display_ads = ads_df.copy()
-                        for col in ['spend', 'cpm', 'cpc']:
-                            if col in display_ads.columns:
-                                display_ads[col] = display_ads[col].apply(lambda x: f"${x:.2f}")
-                        for col in ['impressions', 'clicks', 'reach']:
-                            if col in display_ads.columns:
-                                display_ads[col] = display_ads[col].apply(lambda x: f"{x:,}")
-                        if 'ctr' in display_ads.columns:
-                            display_ads['ctr'] = display_ads['ctr'].apply(lambda x: f"{x:.2f}%")
-                        display_ads = display_ads.rename(columns={
-                            'date': '日期', 'spend': '廣告支出', 'impressions': '曝光數', 'clicks': '點擊數',
-                            'reach': '觸及人數', 'ctr': '點擊率', 'cpm': '千次曝光成本', 'cpc': '單次點擊成本'
-                        })
-                        st.dataframe(display_ads, use_container_width=True, hide_index=True)
-                
-                with tab5:
-                    cost_details = []
-                    cost_details.append({
-                        '成本類型': '估計進貨成本', '項目': f'{cogs_rate}% 成本率',
-                        '基準金額': f"${total_revenue:,.0f}", '費率/單價': f"{cogs_rate}%", '總額': f"${estimated_cogs:,.0f}"
-                    })
-                    
-                    if shipping_costs_detail:
-                        for method, details in shipping_costs_detail.items():
-                            if details['total_cost'] > 0:
-                                cost_details.append({
-                                    '成本類型': '運費', '項目': method, '基準金額': f"{details['count']} 筆訂單",
-                                    '費率/單價': f"${details['cost_per_order']}", '總額': f"${details['total_cost']:,.0f}"
-                                })
-                    
-                    if payment_fees_detail:
-                        for method, details in payment_fees_detail.items():
-                            if details['fee_amount'] > 0:
-                                cost_details.append({
-                                    '成本類型': '金流服務費', '項目': method, '基準金額': f"${details['total_amount']:,.0f}",
-                                    '費率/單價': f"{details['fee_rate']}%", '總額': f"${details['fee_amount']:,.0f}"
-                                })
-                    
-                    if total_ad_spend > 0:
-                        cost_details.append({
-                            '成本類型': '廣告費', '項目': 'Meta 廣告', '基準金額': '-',
-                            '費率/單價': '-', '總額': f"${total_ad_spend:,.0f}"
-                        })
-                    
-                    cost_details.append({
-                        '成本類型': '營業稅', '項目': '5% 營業稅', '基準金額': f"${total_revenue:,.0f}",
-                        '費率/單價': '5%', '總額': f"${business_tax:,.0f}"
-                    })
-                    
-                    if cost_details:
-                        cost_df = pd.DataFrame(cost_details)
-                        st.dataframe(cost_df, use_container_width=True, hide_index=True)
-                        
-                        st.subheader("成本摘要")
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.write("**商品相關成本**")
-                            st.write(f"估計進貨成本: ${estimated_cogs:,.0f}")
-                            st.write(f"運費: ${total_shipping_cost:,.0f}")
-                            st.write(f"金流服務費: ${total_payment_fee:,.0f}")
-                        with col2:
-                            st.write("**行銷成本**")
-                            st.write(f"廣告費: ${total_ad_spend:,.0f}")
-                        with col3:
-                            st.write("**稅務與總計**")
-                            st.write(f"營業稅: ${business_tax:,.0f}")
-                            st.write(f"**總成本: ${total_all_costs:,.0f}**")
-                            st.write(f"**估計淨利: ${estimated_net_profit:,.0f}**")
+            st.plotly_chart(fig3, width="stretch")
             
             # 數據匯出
             st.header("數據匯出")
@@ -550,17 +497,6 @@ if len(date_range) == 2:
                     st.download_button("下載付款分析", data=payment_csv,
                                      file_name=f"付款分析_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
             
-            with col3:
-                if shipping_methods and 'shipping_df' in locals():
-                    shipping_csv = shipping_df.to_csv(index=False)
-                    st.download_button("下載運送分析", data=shipping_csv,
-                                     file_name=f"運送分析_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
-            
-            with col4:
-                if 'daily_cost_df' in locals():
-                    cost_csv = daily_cost_df.to_csv(index=False)
-                    st.download_button("下載成本分析", data=cost_csv,
-                                     file_name=f"成本分析_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
         else:
             st.warning("無法獲取數據，請檢查 API 連接設定")
     else:
@@ -573,48 +509,43 @@ with st.expander("使用說明"):
     st.markdown("""
     ### 電商業績分析儀表板
     
-    **營運總覽**
-    - 總營收：所有完成訂單的總金額
-    - 總訂單數：分析期間內的訂單數量
-    - 客單價：總營收除以總訂單數
-    - 估計淨利：扣除所有成本後的估計利潤（包含廣告費）
+    #### 🔒 安全模式 vs ⚠️ 基本模式
     
-    **成本分析**
-    - 估計進貨成本：可調整的進貨成本率（預設 50%）
-    - 運費：根據運送方式自動計算的物流成本
-    - 金流服務費：依付款方式計算的手續費
-    - 廣告費：Meta 廣告平台的總支出
-    - 營業稅：營收的 5%
+    **安全模式（推薦）:**
+    - API 金鑰透過 Streamlit Secrets 安全管理
+    - Meta Token 自動刷新機制
+    - 生產環境最佳選擇
+    - 無需每次手動輸入敏感資訊
     
-    **廣告數據**
-    - 總曝光：廣告的總曝光次數
-    - 總點擊：廣告的總點擊次數
-    - 點擊率：點擊數除以曝光數的百分比
-    - ROAS：廣告投資報酬率（總營收/廣告費）
+    **基本模式:**
+    - 需要手動輸入 API 金鑰
+    - 適用於開發和測試環境
+    - Token 需手動管理
     
-    **詳細數據分析**
-    - 每日營收與成本：顯示每日營收及各項成本分解
-    - 每日績效：營收、廣告支出和ROAS趨勢
-    - 訂單明細：所有訂單的詳細資訊
-    - 廣告績效：Meta廣告的詳細指標
-    - 成本明細：各項成本的詳細計算
+    #### 💡 部署建議
+    1. 使用 Streamlit Community Cloud 進行免費部署
+    2. 在部署設定中配置 Secrets 以啟用安全模式
+    3. 定期檢查 Meta Token 狀態並更新
     
-    **計算公式**
-    - 估計淨利 = 總營收 - 估計進貨成本 - 運費 - 金流服務費 - 廣告費 - 營業稅
-    - 總成本 = 估計進貨成本 + 運費 + 金流服務費 + 廣告費 + 營業稅
+    #### 📊 功能說明
+    - **營運總覽**: 總營收、訂單數、客單價、估計淨利
+    - **成本分析**: 進貨成本、運費、手續費、廣告費、稅務
+    - **廣告數據**: 曝光、點擊、CTR、ROAS 等關鍵指標
+    - **趨勢分析**: 每日營收、成本、獲利趨勢圖表
+    - **詳細報表**: 可下載的 CSV 格式分析報告
     
-    **費率設定**
-    - 運費：全家 $69、萊爾富 $58、宅配 $180
-    - 金流服務費：超商取貨付款 0.53%、Line Pay 2.94%、信用卡 2.5725%
-    - 營業稅：5%
-    - 進貨成本率：可在側邊欄調整（預設 50%）
+    #### 🛠️ 技術特點
+    - 自動 API 錯誤處理和重試機制
+    - Meta Long-lived Token 自動刷新
+    - 多重安全驗證和資料加密
+    - 響應式設計，支援多設備存取
     """)
 
 # 頁腳
 st.markdown("---")
-st.markdown("""
+st.markdown(f"""
     <div style='text-align: center; color: #6b7280; padding: 1rem;'>
-        <strong>電商業績分析儀表板</strong><br>
-        專業電商數據分析平台 | 整合成本分析與獲利計算
+        <strong>電商業績分析儀表板 v2.0</strong><br>
+        {'🔒 安全模式' if SECURE_MODE else '⚠️ 基本模式'} | 專業電商數據分析平台
     </div>
     """, unsafe_allow_html=True)
