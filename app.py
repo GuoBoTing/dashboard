@@ -11,7 +11,7 @@ import numpy as np
 # 導入我們的安全配置模組
 try:
     from config import Config, setup_api_connections, get_active_config
-    from meta_api_enhanced import get_enhanced_meta_ads_data, show_token_management
+    from meta_api_enhanced import get_enhanced_meta_ads_data, show_token_management, MetaAdsAPI
     SECURE_MODE = True
 except ImportError:
     # 如果模組不存在，回退到原始模式
@@ -145,7 +145,61 @@ with st.sidebar:
     # 在安全模式下顯示 Token 管理
     if SECURE_MODE and meta_configured:
         with st.expander("🔑 Token 管理", expanded=False):
-            show_token_management()
+            # 顯示當前 token 狀態
+            if 'meta_token_info' in st.session_state:
+                token_info = st.session_state.meta_token_info
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.info("**當前 Token 狀態**")
+                    if 'expires_at' in token_info:
+                        expires_at = datetime.fromisoformat(token_info['expires_at'])
+                        days_left = (expires_at - datetime.now()).days
+                        
+                        if days_left > 7:
+                            st.success(f"✅ Token 有效，剩餘 {days_left} 天")
+                        elif days_left > 0:
+                            st.warning(f"⚠️ Token 將在 {days_left} 天後過期")
+                        else:
+                            st.error("❌ Token 已過期")
+                        
+                        st.caption(f"到期時間: {expires_at.strftime('%Y-%m-%d %H:%M:%S')}")
+                
+                with col2:
+                    if st.button("🔄 手動刷新 Token"):
+                        try:
+                            wc_config, meta_config = get_active_config()
+                            api_client = MetaAdsAPI(
+                                app_id=meta_config['app_id'],
+                                app_secret=meta_config['app_secret'],
+                                account_id=meta_config['account_id'],
+                                long_lived_token=st.session_state.meta_token_info.get('access_token')
+                            )
+                            api_client.refresh_long_lived_token()
+                            st.experimental_rerun()
+                        except Exception as e:
+                            st.error(f"刷新失敗: {str(e)}")
+            else:
+                st.info("ℹ️ 尚未設定 Token 信息")
+            
+            # 初始化長期 Token
+            st.subheader("初始化長期 Token")
+            st.info("💡 首次使用時，請使用短期 Token 生成長期 Token")
+            short_token = st.text_input("短期 Access Token", type="password", key="short_token_input")
+            
+            if st.button("生成長期 Token") and short_token:
+                try:
+                    wc_config, meta_config = get_active_config()
+                    api_client = MetaAdsAPI(
+                        app_id=meta_config['app_id'],
+                        app_secret=meta_config['app_secret'],
+                        account_id=meta_config['account_id']
+                    )
+                    token_info = api_client.refresh_long_lived_token(short_token)
+                    st.success("✅ 長期 Token 生成成功！")
+                    st.json(token_info)
+                    st.experimental_rerun()
+                except Exception as e:
+                    st.error(f"生成失敗: {str(e)}")
     
     st.markdown("---")
     st.subheader("成本設定")
@@ -371,7 +425,7 @@ if len(date_range) == 2:
                     fig_cost = px.pie(cost_df, values='金額', names='成本類型', title='成本結構分布')
                     fig_cost.update_traces(textposition='inside', textinfo='percent+label')
                     fig_cost.update_layout(height=400)
-                    st.plotly_chart(fig_cost, width="stretch")
+                    st.plotly_chart(fig_cost, use_container_width=True)
             
             with col2:
                 financial_summary = {'總營收': total_revenue, '總成本': total_all_costs, '估計淨利': estimated_net_profit}
@@ -379,7 +433,7 @@ if len(date_range) == 2:
                 fig_summary = px.bar(summary_df, x='項目', y='金額', title='營收、成本與獲利比較',
                                    color='金額', color_continuous_scale=['red', 'yellow', 'green'])
                 fig_summary.update_layout(height=400, showlegend=False)
-                st.plotly_chart(fig_summary, width="stretch")
+                st.plotly_chart(fig_summary, use_container_width=True)
             
             # 付款方式分析
             if payment_methods:
@@ -396,14 +450,14 @@ if len(date_range) == 2:
                         })
                     payment_df = pd.DataFrame(payment_data).sort_values('訂單數', ascending=False)
                     st.subheader("付款方式統計")
-                    st.dataframe(payment_df, width=None, hide_index=True)
+                    st.dataframe(payment_df, use_container_width=True, hide_index=True)
                 
                 with col2:
                     payment_chart_df = pd.DataFrame(list(payment_methods.items()), columns=['付款方式', '訂單數'])
                     fig_payment = px.pie(payment_chart_df, values='訂單數', names='付款方式', title='付款方式分布')
                     fig_payment.update_traces(textposition='inside', textinfo='percent+label')
                     fig_payment.update_layout(height=400, showlegend=False)
-                    st.plotly_chart(fig_payment, width="stretch")
+                    st.plotly_chart(fig_payment, use_container_width=True)
             
             # 運送方式分析
             if shipping_methods:
@@ -419,14 +473,14 @@ if len(date_range) == 2:
                         })
                     shipping_df = pd.DataFrame(shipping_data).sort_values('訂單數', ascending=False)
                     st.subheader("運送方式統計")
-                    st.dataframe(shipping_df, width=None, hide_index=True)
+                    st.dataframe(shipping_df, use_container_width=True, hide_index=True)
                 
                 with col2:
                     shipping_chart_df = pd.DataFrame(list(shipping_methods.items()), columns=['運送方式', '訂單數'])
                     fig_shipping = px.bar(shipping_chart_df, x='運送方式', y='訂單數', title='運送方式偏好',
                                         color='訂單數', color_continuous_scale='Blues')
                     fig_shipping.update_layout(xaxis_tickangle=-45, height=400, showlegend=False)
-                    st.plotly_chart(fig_shipping, width="stretch")
+                    st.plotly_chart(fig_shipping, use_container_width=True)
             
             # 趨勢分析
             st.header("趨勢分析")
@@ -462,7 +516,7 @@ if len(date_range) == 2:
                 fig1 = px.line(merged_df, x='date', y=['revenue', 'spend'], title='每日營收 vs 廣告支出',
                               labels={'value': '金額 ($)', 'variable': '指標'})
                 fig1.update_layout(height=400)
-                st.plotly_chart(fig1, width="stretch")
+                st.plotly_chart(fig1, use_container_width=True)
             
             with col2:
                 if not merged_df.empty and 'roas' in merged_df.columns:
@@ -470,7 +524,7 @@ if len(date_range) == 2:
                     fig2.add_hline(y=1, line_dash="dash", line_color="red", annotation_text="損益平衡")
                     fig2.add_hline(y=3, line_dash="dot", line_color="green", annotation_text="目標值")
                     fig2.update_layout(height=400)
-                    st.plotly_chart(fig2, width="stretch")
+                    st.plotly_chart(fig2, use_container_width=True)
             
             # 每日淨利圖表
             st.subheader("每日估計淨利分析")
@@ -479,7 +533,7 @@ if len(date_range) == 2:
                          labels={'estimated_net_profit': '估計淨利 ($)', 'date': '日期'})
             fig3.add_hline(y=0, line_dash="solid", line_color="black", annotation_text="損益平衡線")
             fig3.update_layout(height=450)
-            st.plotly_chart(fig3, width="stretch")
+            st.plotly_chart(fig3, use_container_width=True)
             
             # 數據匯出
             st.header("數據匯出")
