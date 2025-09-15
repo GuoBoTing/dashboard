@@ -102,7 +102,7 @@ TAX_RATE = 0.05  # 5%
 # 主標題
 st.markdown("""
 <div class="main-header">
-    <h1>嗜酒食電商業績分析儀表板</h1>
+    <h1>電商業績分析儀表板</h1>
     <p>WooCommerce 與 Meta 廣告整合分析平台</p>
 </div>
 """, unsafe_allow_html=True)
@@ -496,6 +496,128 @@ if len(date_range) == 2:
                     payment_csv = payment_df.to_csv(index=False)
                     st.download_button("下載付款分析", data=payment_csv,
                                      file_name=f"付款分析_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
+            
+            with col3:
+                if shipping_methods and 'shipping_df' in locals():
+                    shipping_csv = shipping_df.to_csv(index=False)
+                    st.download_button("下載運送分析", data=shipping_csv,
+                                     file_name=f"運送分析_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
+            
+            with col4:
+                if 'merged_df' in locals():
+                    cost_csv = merged_df.to_csv(index=False)
+                    st.download_button("下載成本分析", data=cost_csv,
+                                     file_name=f"成本分析_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
+            
+            # 詳細數據表格
+            if st.checkbox("顯示詳細數據"):
+                st.header("詳細分析數據")
+                tab1, tab2, tab3, tab4, tab5 = st.tabs(["每日營收與成本", "每日績效", "訂單明細", "廣告績效", "成本明細"])
+                
+                with tab1:
+                    if 'merged_df' in locals() and not merged_df.empty:
+                        daily_cost_df = merged_df[['date', 'revenue', 'estimated_cogs', 'daily_shipping_cost', 
+                                                 'daily_payment_fee', 'spend', 'business_tax', 'estimated_net_profit']].copy()
+                        for col in ['revenue', 'estimated_cogs', 'daily_shipping_cost', 'daily_payment_fee', 'spend', 'business_tax', 'estimated_net_profit']:
+                            daily_cost_df[col] = daily_cost_df[col].apply(lambda x: f"${x:,.2f}")
+                        daily_cost_df = daily_cost_df.rename(columns={
+                            'date': '日期', 'revenue': '營收', 'estimated_cogs': '估計進貨成本',
+                            'daily_shipping_cost': '運費', 'daily_payment_fee': '金流服務費',
+                            'spend': '廣告費', 'business_tax': '營業稅', 'estimated_net_profit': '估計淨利'
+                        })
+                        st.dataframe(daily_cost_df, use_container_width=True, hide_index=True)
+                        st.info("💡 提示：運費和金流服務費按日平均分配計算")
+                
+                with tab2:
+                    if 'merged_df' in locals() and not merged_df.empty:
+                        display_df = merged_df[['date', 'revenue', 'spend', 'roas']].copy()
+                        for col in ['revenue', 'spend']:
+                            display_df[col] = display_df[col].apply(lambda x: f"${x:,.2f}")
+                        display_df['roas'] = display_df['roas'].apply(lambda x: f"{x:.2f}")
+                        display_df = display_df.rename(columns={'date': '日期', 'revenue': '營收', 'spend': '廣告支出', 'roas': 'ROAS'})
+                        st.dataframe(display_df, use_container_width=True, hide_index=True)
+                
+                with tab3:
+                    if not orders_df.empty:
+                        display_orders = orders_df.copy()
+                        display_orders['total'] = display_orders['total'].apply(lambda x: f"${x:.2f}")
+                        display_orders = display_orders.rename(columns={
+                            'order_id': '訂單ID', 'date': '日期', 'total': '金額', 'status': '狀態',
+                            'customer_id': '客戶ID', 'payment_method': '付款方式', 'shipping_method': '運送方式'
+                        })
+                        st.dataframe(display_orders, use_container_width=True, hide_index=True)
+                
+                with tab4:
+                    if not ads_df.empty:
+                        display_ads = ads_df.copy()
+                        for col in ['spend', 'cpm', 'cpc']:
+                            if col in display_ads.columns:
+                                display_ads[col] = display_ads[col].apply(lambda x: f"${x:.2f}")
+                        for col in ['impressions', 'clicks', 'reach']:
+                            if col in display_ads.columns:
+                                display_ads[col] = display_ads[col].apply(lambda x: f"{x:,}")
+                        if 'ctr' in display_ads.columns:
+                            display_ads['ctr'] = display_ads['ctr'].apply(lambda x: f"{x:.2f}%")
+                        display_ads = display_ads.rename(columns={
+                            'date': '日期', 'spend': '廣告支出', 'impressions': '曝光數', 'clicks': '點擊數',
+                            'reach': '觸及人數', 'ctr': '點擊率', 'cpm': '千次曝光成本', 'cpc': '單次點擊成本'
+                        })
+                        st.dataframe(display_ads, use_container_width=True, hide_index=True)
+                
+                with tab5:
+                    cost_details = []
+                    cost_details.append({
+                        '成本類型': '估計進貨成本', '項目': f'{cogs_rate}% 成本率',
+                        '基準金額': f"${total_revenue:,.0f}", '費率/單價': f"{cogs_rate}%", '總額': f"${estimated_cogs:,.0f}"
+                    })
+                    
+                    if shipping_costs_detail:
+                        for method, details in shipping_costs_detail.items():
+                            if details['total_cost'] > 0:
+                                cost_details.append({
+                                    '成本類型': '運費', '項目': method, '基準金額': f"{details['count']} 筆訂單",
+                                    '費率/單價': f"${details['cost_per_order']}", '總額': f"${details['total_cost']:,.0f}"
+                                })
+                    
+                    if payment_fees_detail:
+                        for method, details in payment_fees_detail.items():
+                            if details['fee_amount'] > 0:
+                                cost_details.append({
+                                    '成本類型': '金流服務費', '項目': method, '基準金額': f"${details['total_amount']:,.0f}",
+                                    '費率/單價': f"{details['fee_rate']}%", '總額': f"${details['fee_amount']:,.0f}"
+                                })
+                    
+                    if total_ad_spend > 0:
+                        cost_details.append({
+                            '成本類型': '廣告費', '項目': 'Meta 廣告', '基準金額': '-',
+                            '費率/單價': '-', '總額': f"${total_ad_spend:,.0f}"
+                        })
+                    
+                    cost_details.append({
+                        '成本類型': '營業稅', '項目': '5% 營業稅', '基準金額': f"${total_revenue:,.0f}",
+                        '費率/單價': '5%', '總額': f"${business_tax:,.0f}"
+                    })
+                    
+                    if cost_details:
+                        cost_df = pd.DataFrame(cost_details)
+                        st.dataframe(cost_df, use_container_width=True, hide_index=True)
+                        
+                        st.subheader("成本摘要")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.write("**商品相關成本**")
+                            st.write(f"估計進貨成本: ${estimated_cogs:,.0f}")
+                            st.write(f"運費: ${total_shipping_cost:,.0f}")
+                            st.write(f"金流服務費: ${total_payment_fee:,.0f}")
+                        with col2:
+                            st.write("**行銷成本**")
+                            st.write(f"廣告費: ${total_ad_spend:,.0f}")
+                        with col3:
+                            st.write("**稅務與總計**")
+                            st.write(f"營業稅: ${business_tax:,.0f}")
+                            st.write(f"**總成本: ${total_all_costs:,.0f}**")
+                            st.write(f"**估計淨利: ${estimated_net_profit:,.0f}**")
+
             
         else:
             st.warning("無法獲取數據，請檢查 API 連接設定")
