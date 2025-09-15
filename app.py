@@ -102,7 +102,7 @@ TAX_RATE = 0.05  # 5%
 # 主標題
 st.markdown("""
 <div class="main-header">
-    <h1>電商業績分析儀表板</h1>
+    <h1>嗜酒食電商業績分析儀表板</h1>
     <p>WooCommerce 與 Meta 廣告整合分析平台</p>
 </div>
 """, unsafe_allow_html=True)
