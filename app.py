@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import requests
 from requests.auth import HTTPBasicAuth
 import numpy as np
+import json
 
 # 導入我們的安全配置模組
 try:
@@ -152,9 +153,12 @@ with st.sidebar:
     cogs_rate = st.slider("估計進貨成本率 (%)", min_value=20, max_value=80, value=50, step=5)
     
     st.subheader("分析期間")
-    date_range = st.date_input("選擇日期範圍", 
+    date_range = st.date_input("選擇日期範圍",
                                value=(datetime.now() - timedelta(days=30), datetime.now()),
                                max_value=datetime.now())
+
+    st.subheader("調試設定")
+    debug_mode = st.checkbox("啟用調試模式", help="顯示詳細的 Meta API 請求和響應信息")
 
 # 計算函數
 def calculate_shipping_costs(shipping_methods):
@@ -252,7 +256,10 @@ def get_meta_ads_data_basic(token, account_id, start_date, end_date):
         url = f"https://graph.facebook.com/v21.0/{account_id}/insights"
         params = {
             'access_token': token, 'fields': 'spend,impressions,clicks,reach,frequency,cpm,cpc,ctr',
-            'time_range': f'{{"since":"{start_date.strftime("%Y-%m-%d")}","until":"{end_date.strftime("%Y-%m-%d")}"}}',
+            'time_range': json.dumps({
+                'since': start_date.strftime('%Y-%m-%d'),
+                'until': end_date.strftime('%Y-%m-%d')
+            }),
             'level': 'account', 'time_increment': 1
         }
         
@@ -301,7 +308,7 @@ if len(date_range) == 2:
         if meta_configured:
             if SECURE_MODE:
                 _, meta_config = get_active_config()
-                ads_df = get_enhanced_meta_ads_data(meta_config, start_date, end_date)
+                ads_df = get_enhanced_meta_ads_data(meta_config, start_date, end_date, debug_mode)
             else:
                 ads_df = get_meta_ads_data_basic(meta_token, meta_account_id, start_date, end_date)
         

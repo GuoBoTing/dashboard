@@ -156,20 +156,65 @@ class MetaAdsAPI:
                 import time
                 time.sleep(1)
     
-    def get_ads_insights(self, start_date: datetime, end_date: datetime) -> dict:
+    def get_ads_insights(self, start_date: datetime, end_date: datetime, debug_mode: bool = False) -> dict:
         """獲取廣告洞察數據"""
+        # 調整日期範圍 - 避免查詢太近期的數據（Meta API有延遲）
+        today = datetime.now().date()
+        if isinstance(end_date, datetime):
+            end_date = end_date.date()
+        if isinstance(start_date, datetime):
+            start_date = start_date.date()
+
+        if end_date >= today:
+            end_date = today - timedelta(days=1)  # 至少查詢昨天以前的數據
+            if debug_mode:
+                st.info(f"⚠️ 為確保數據完整性，查詢範圍調整至 {end_date}")
+
+        # 確保開始日期不會超過結束日期
+        if start_date > end_date:
+            start_date = end_date - timedelta(days=7)  # 默認查詢7天
+            if debug_mode:
+                st.warning(f"⚠️ 日期範圍調整為：{start_date} 至 {end_date}")
+
         endpoint = f"{self.account_id}/insights"
         params = {
-            'fields': 'spend,impressions,clicks,reach,frequency,cpm,cpc,ctr',
+            'fields': 'spend,impressions,clicks,reach,frequency,cpm,cpc,ctr,date_start,date_stop',
             'time_range': json.dumps({
                 'since': start_date.strftime('%Y-%m-%d'),
                 'until': end_date.strftime('%Y-%m-%d')
             }),
             'level': 'account',
-            'time_increment': 1
+            'time_increment': 1,
+            'limit': 1000  # 確保能獲取所有數據
         }
-        
-        return self._make_api_request(endpoint, params)
+
+        if debug_mode:
+            st.write(f"🔍 調試：查詢帳號 {self.account_id}")
+            st.write(f"🔍 調試：日期範圍 {start_date} 至 {end_date}")
+            st.write(f"🔍 調試：API 參數")
+            debug_params = params.copy()
+            st.json(debug_params)
+
+        result = self._make_api_request(endpoint, params)
+
+        # 額外的數據驗證和統計
+        if debug_mode and 'data' in result:
+            raw_data = result['data']
+            st.write(f"🔍 調試：API 返回 {len(raw_data)} 筆原始數據")
+
+            if raw_data:
+                st.write("🔍 調試：第一筆原始數據樣本:")
+                st.json(raw_data[0])
+
+                # 統計零廣告費天數
+                zero_spend_days = sum(1 for item in raw_data if float(item.get('spend', 0)) == 0)
+                total_spend = sum(float(item.get('spend', 0)) for item in raw_data)
+
+                st.info(f"📊 總廣告費: ${total_spend:,.2f}")
+                if zero_spend_days > 0:
+                    st.warning(f"⚠️ 發現 {zero_spend_days}/{len(raw_data)} 天的廣告費為 $0")
+
+        return result
     
     def get_account_info(self) -> dict:
         """獲取帳號信息"""
@@ -188,7 +233,7 @@ class MetaAdsAPI:
         except:
             return False
 
-def get_enhanced_meta_ads_data(config: dict, start_date: datetime, end_date: datetime):
+def get_enhanced_meta_ads_data(config: dict, start_date: datetime, end_date: datetime, debug_mode: bool = False):
     """使用增強版 Meta API 獲取數據"""
     try:
         # 初始化 API 客戶端
@@ -198,15 +243,15 @@ def get_enhanced_meta_ads_data(config: dict, start_date: datetime, end_date: dat
             account_id=config['account_id'],
             long_lived_token=config.get('long_lived_token')
         )
-        
+
         # 測試連接
         if not api_client.test_connection():
             st.error("Meta API 連接測試失敗")
             return pd.DataFrame()
-        
+
         with st.spinner("正在獲取 Meta 廣告數據..."):
             # 獲取廣告數據
-            insights_data = api_client.get_ads_insights(start_date, end_date)
+            insights_data = api_client.get_ads_insights(start_date, end_date, debug_mode)
             
             # 處理數據
             processed_data = []
