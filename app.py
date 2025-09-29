@@ -158,7 +158,7 @@ with st.sidebar:
                                max_value=datetime.now())
 
     st.subheader("調試設定")
-    debug_mode = st.checkbox("啟用調試模式", help="顯示詳細的 Meta API 請求和響應信息")
+    st.session_state.debug_mode = st.checkbox("啟用調試模式", help="顯示詳細的 Meta API 請求和響應信息")
 
 # 計算函數
 def calculate_shipping_costs(shipping_methods):
@@ -288,7 +288,10 @@ def get_meta_ads_data_basic(token, account_id, start_date, end_date):
 # 主要分析邏輯
 if len(date_range) == 2:
     start_date, end_date = date_range
-    
+
+    # 獲取調試模式設定
+    debug_mode = st.session_state.get('debug_mode', False)
+
     if wc_configured or meta_configured:
         orders_df, payment_methods, shipping_methods, ads_df = pd.DataFrame(), {}, {}, pd.DataFrame()
         
