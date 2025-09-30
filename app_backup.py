@@ -1,3 +1,4 @@
+# app.py - 電商業績分析儀表板主程式
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -6,6 +7,17 @@ from datetime import datetime, timedelta
 import requests
 from requests.auth import HTTPBasicAuth
 import numpy as np
+import json
+
+# 導入我們的安全配置模組
+try:
+    from config import Config, setup_api_connections, get_active_config
+    from meta_api_enhanced import get_enhanced_meta_ads_data, show_token_management, MetaAdsAPI
+    SECURE_MODE = True
+except ImportError:
+    # 如果模組不存在，回退到原始模式
+    SECURE_MODE = False
+    st.warning("安全配置模組未找到，使用基本模式")
 
 # 頁面設定
 st.set_page_config(
@@ -15,7 +27,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS 樣式 - 移除箭頭和邊框
+# CSS 樣式
 st.markdown("""
 <style>
     .main-header {
@@ -53,6 +65,26 @@ st.markdown("""
         display: none !important;
         visibility: hidden !important;
     }
+    
+    .secure-mode {
+        background: linear-gradient(90deg, #059669 0%, #10b981 100%);
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        display: inline-block;
+        margin-bottom: 1rem;
+    }
+    
+    .basic-mode {
+        background: linear-gradient(90deg, #d97706 0%, #f59e0b 100%);
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        display: inline-block;
+        margin-bottom: 1rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -76,21 +108,45 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# 顯示運行模式
+if SECURE_MODE:
+    st.markdown('<div class="secure-mode">🔒 安全模式：API 金鑰已加密保護</div>', unsafe_allow_html=True)
+else:
+    st.markdown('<div class="basic-mode">⚠️ 基本模式：請手動輸入 API 設定</div>', unsafe_allow_html=True)
+
 # 側邊欄
 with st.sidebar:
     st.header("設定面板")
     st.markdown("---")
     
-    st.subheader("WooCommerce 設定")
-    with st.expander("API 連接設定", expanded=True):
-        wc_url = st.text_input("商店網址", value="", placeholder="https://your-store.com")
-        wc_key = st.text_input("Consumer Key", type="password")
-        wc_secret = st.text_input("Consumer Secret", type="password")
+    # 根據模式使用不同的配置方式
+    if SECURE_MODE:
+        wc_configured, meta_configured = setup_api_connections()
+    else:
+        # 基本模式：手動輸入
+        st.subheader("WooCommerce 設定")
+        with st.expander("API 連接設定", expanded=True):
+            wc_url = st.text_input("商店網址", value="", placeholder="https://your-store.com")
+            wc_key = st.text_input("Consumer Key", type="password")
+            wc_secret = st.text_input("Consumer Secret", type="password")
+        
+        st.subheader("Meta 廣告設定")
+        with st.expander("API 連接設定", expanded=False):
+            meta_token = st.text_input("存取權杖", type="password")
+            meta_account_id = st.text_input("廣告帳號 ID", placeholder="act_xxxxxxxxx")
+        
+        wc_configured = bool(wc_url and wc_key and wc_secret)
+        meta_configured = bool(meta_token and meta_account_id)
     
-    st.subheader("Meta 廣告設定")
-    with st.expander("API 連接設定", expanded=False):
-        meta_token = st.text_input("存取權杖", type="password")
-        meta_account_id = st.text_input("廣告帳號 ID", placeholder="act_xxxxxxxxx")
+    st.markdown("---")
+    st.subheader("連接狀態")
+    st.write(f"WooCommerce: {'🟢 已連接' if wc_configured else '🔴 未連接'}")
+    st.write(f"Meta 廣告: {'🟢 已連接' if meta_configured else '🔴 未連接'}")
+    
+    # 在安全模式下顯示 Token 管理
+    if SECURE_MODE and meta_configured:
+        with st.expander("🔑 Token 管理", expanded=False):
+            show_token_management()
     
     st.markdown("---")
     st.subheader("成本設定")
@@ -102,15 +158,7 @@ with st.sidebar:
                                max_value=datetime.now())
 
     st.subheader("調試設定")
-    debug_mode = st.checkbox("啟用調試模式", help="顯示詳細的 API 請求和響應信息")
-    
-    wc_configured = bool(wc_url and wc_key and wc_secret)
-    meta_configured = bool(meta_token and meta_account_id)
-    
-    st.markdown("---")
-    st.subheader("連接狀態")
-    st.write(f"WooCommerce: {'🟢 已連接' if wc_configured else '🔴 未連接'}")
-    st.write(f"Meta 廣告: {'🟢 已連接' if meta_configured else '🔴 未連接'}")
+    st.session_state.debug_mode = st.checkbox("啟用調試模式", help="顯示詳細的 Meta API 請求和響應信息")
 
 # 計算函數
 def calculate_shipping_costs(shipping_methods):
@@ -202,150 +250,72 @@ def get_enhanced_woocommerce_data(url, key, secret, start_date, end_date):
         st.error(f"WooCommerce 連接錯誤: {str(e)}")
         return pd.DataFrame(), {}, {}
 
-def get_meta_ads_data(token, account_id, start_date, end_date, debug_mode=False):
+def get_meta_ads_data_basic(token, account_id, start_date, end_date):
     try:
-        # 確保帳號ID格式正確
-        if not account_id.startswith('act_'):
-            account_id = f"act_{account_id}"
-
-        # 調整日期範圍 - 避免查詢太近期的數據（Meta API有延遲）
-        today = datetime.now().date()
-        if end_date >= today:
-            end_date = today - timedelta(days=1)  # 至少查詢昨天以前的數據
-            st.info(f"⚠️ 為確保數據完整性，查詢範圍調整至 {end_date}")
-
-        # 確保開始日期不會超過結束日期
-        if start_date > end_date:
-            start_date = end_date - timedelta(days=7)  # 默認查詢7天
-            st.warning(f"⚠️ 日期範圍調整為：{start_date} 至 {end_date}")
-
+        if not account_id.startswith('act_'): account_id = f"act_{account_id}"
         url = f"https://graph.facebook.com/v21.0/{account_id}/insights"
-
-        # 使用json.dumps確保正確的JSON格式
-        import json
-        time_range_json = json.dumps({
-            'since': start_date.strftime('%Y-%m-%d'),
-            'until': end_date.strftime('%Y-%m-%d')
-        })
-
         params = {
-            'access_token': token,
-            'fields': 'spend,impressions,clicks,reach,frequency,cpm,cpc,ctr,date_start,date_stop',
-            'time_range': time_range_json,
-            'level': 'account',
-            'time_increment': 1,
-            'limit': 1000  # 確保能獲取所有數據
+            'access_token': token, 'fields': 'spend,impressions,clicks,reach,frequency,cpm,cpc,ctr',
+            'time_range': json.dumps({
+                'since': start_date.strftime('%Y-%m-%d'),
+                'until': end_date.strftime('%Y-%m-%d')
+            }),
+            'level': 'account', 'time_increment': 1
         }
-
+        
         with st.spinner("正在獲取 Meta 廣告數據..."):
-            # 條件性顯示調試信息
-            if debug_mode:
-                st.write(f"🔍 調試：查詢帳號 {account_id}")
-                st.write(f"🔍 調試：日期範圍 {start_date} 至 {end_date}")
-                st.write(f"🔍 調試：API URL {url}")
-                debug_params = {k: v for k, v in params.items() if k != 'access_token'}
-                debug_params['access_token'] = f"{token[:20]}..." if len(token) > 20 else "***"
-                st.json(debug_params)
-
             response = requests.get(url, params=params, timeout=30)
-
-            # 詳細的錯誤處理
             if response.status_code == 200:
                 data = response.json()
-
-                # 條件性顯示調試信息
-                if debug_mode:
-                    st.write(f"🔍 調試：API 返回 {len(data.get('data', []))} 筆原始數據")
-
-                # 如果有錯誤信息也要顯示
-                if 'error' in data:
-                    st.error(f"API 返回錯誤: {data['error']}")
-                    return pd.DataFrame()
-
                 processed_data = []
-                raw_data = data.get('data', [])
-
-                # 條件性顯示原始數據樣本
-                if debug_mode and raw_data:
-                    st.write("🔍 調試：第一筆原始數據樣本:")
-                    st.json(raw_data[0])
-
-                for item in raw_data:
-                    # 更安全的數據提取
-                    try:
-                        spend_value = float(item.get('spend', 0))
-                        date_value = pd.to_datetime(item.get('date_start', item.get('date_stop', start_date))).date()
-
-                        processed_item = {
-                            'date': date_value,
-                            'spend': spend_value,
-                            'impressions': int(item.get('impressions', 0)),
-                            'clicks': int(item.get('clicks', 0)),
-                            'reach': int(item.get('reach', 0)),
-                            'ctr': float(item.get('ctr', 0)),
-                            'cpm': float(item.get('cpm', 0)),
-                            'cpc': float(item.get('cpc', 0))
-                        }
-                        processed_data.append(processed_item)
-
-                        # 如果spend為0且在調試模式，顯示警告
-                        if spend_value == 0 and debug_mode:
-                            st.write(f"⚠️ {date_value} 的廣告費為 $0")
-
-                    except (ValueError, TypeError) as e:
-                        st.warning(f"處理數據項目時發生錯誤: {str(e)}")
-                        continue
-
+                for item in data.get('data', []):
+                    processed_data.append({
+                        'date': pd.to_datetime(item['date_start']).date(),
+                        'spend': float(item.get('spend', 0)), 'impressions': int(item.get('impressions', 0)),
+                        'clicks': int(item.get('clicks', 0)), 'reach': int(item.get('reach', 0)),
+                        'ctr': float(item.get('ctr', 0)), 'cpm': float(item.get('cpm', 0)), 'cpc': float(item.get('cpc', 0))
+                    })
                 df = pd.DataFrame(processed_data)
-
-                # 數據驗證和統計
-                if not df.empty:
-                    total_spend = df['spend'].sum()
-                    zero_spend_days = len(df[df['spend'] == 0])
-                    total_days = len(df)
-
-                    st.success(f"✅ 成功獲取 {len(processed_data)} 筆 Meta 廣告數據")
-                    st.info(f"📊 總廣告費: ${total_spend:,.2f}")
-                    if zero_spend_days > 0:
-                        st.warning(f"⚠️ 發現 {zero_spend_days}/{total_days} 天的廣告費為 $0")
-                else:
-                    st.warning("⚠️ 沒有獲取到廣告數據，可能原因：")
-                    st.write("• 選定期間內沒有投放廣告")
-                    st.write("• API 權限不足")
-                    st.write("• 帳號ID 錯誤")
-
+                st.success(f"成功獲取 {len(processed_data)} 筆 Meta 廣告數據")
                 return df
-
             else:
-                # 更詳細的錯誤信息
-                try:
-                    error_data = response.json()
-                    error_msg = error_data.get('error', {}).get('message', 'Unknown error')
-                    error_code = error_data.get('error', {}).get('code', 'Unknown code')
-                    st.error(f"❌ Meta API 錯誤 (代碼: {error_code}): {error_msg}")
-                except:
-                    st.error(f"❌ Meta API 錯誤 (HTTP {response.status_code}): {response.text}")
-
+                st.error(f"Meta 廣告 API 錯誤: {response.text}")
                 return pd.DataFrame()
-
     except Exception as e:
-        st.error(f"❌ Meta 廣告連接錯誤: {str(e)}")
-        import traceback
-        st.error(f"詳細錯誤: {traceback.format_exc()}")
+        st.error(f"Meta 廣告連接錯誤: {str(e)}")
         return pd.DataFrame()
 
-# 主要分析
+# 主要分析邏輯
 if len(date_range) == 2:
     start_date, end_date = date_range
-    
+
+    # 獲取調試模式設定
+    debug_mode = st.session_state.get('debug_mode', False)
+
     if wc_configured or meta_configured:
         orders_df, payment_methods, shipping_methods, ads_df = pd.DataFrame(), {}, {}, pd.DataFrame()
         
+        # WooCommerce 數據獲取
         if wc_configured:
-            orders_df, payment_methods, shipping_methods = get_enhanced_woocommerce_data(wc_url, wc_key, wc_secret, start_date, end_date)
-        if meta_configured:
-            ads_df = get_meta_ads_data(meta_token, meta_account_id, start_date, end_date, debug_mode)
+            if SECURE_MODE:
+                wc_config, _ = get_active_config()
+                orders_df, payment_methods, shipping_methods = get_enhanced_woocommerce_data(
+                    wc_config['url'], wc_config['consumer_key'], wc_config['consumer_secret'], start_date, end_date
+                )
+            else:
+                orders_df, payment_methods, shipping_methods = get_enhanced_woocommerce_data(
+                    wc_url, wc_key, wc_secret, start_date, end_date
+                )
         
+        # Meta 廣告數據獲取
+        if meta_configured:
+            if SECURE_MODE:
+                _, meta_config = get_active_config()
+                ads_df = get_enhanced_meta_ads_data(meta_config, start_date, end_date, debug_mode)
+            else:
+                ads_df = get_meta_ads_data_basic(meta_token, meta_account_id, start_date, end_date)
+        
+        # 如果有數據，繼續分析
         if not orders_df.empty or not ads_df.empty:
             # 計算基本指標
             if not orders_df.empty:
@@ -521,29 +491,33 @@ if len(date_range) == 2:
             fig3.update_layout(height=450)
             st.plotly_chart(fig3, use_container_width=True)
             
-            # 淨利統計摘要
-            if not merged_df.empty:
-                st.markdown("### 淨利統計摘要")
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    avg_daily_profit = merged_df['estimated_net_profit'].mean()
-                    st.metric("平均每日淨利", f"${avg_daily_profit:,.0f}")
-                with col2:
-                    max_daily_profit = merged_df['estimated_net_profit'].max()
-                    best_day = merged_df[merged_df['estimated_net_profit'] == max_daily_profit]['date'].iloc[0]
-                    st.metric("最高單日淨利", f"${max_daily_profit:,.0f}")
-                    st.caption(f"日期: {best_day}")
-                with col3:
-                    min_daily_profit = merged_df['estimated_net_profit'].min()
-                    worst_day = merged_df[merged_df['estimated_net_profit'] == min_daily_profit]['date'].iloc[0]
-                    st.metric("最低單日淨利", f"${min_daily_profit:,.0f}")
-                    st.caption(f"日期: {worst_day}")
-                with col4:
-                    profitable_days = len(merged_df[merged_df['estimated_net_profit'] > 0])
-                    total_days = len(merged_df)
-                    profit_rate = (profitable_days / total_days * 100) if total_days > 0 else 0
-                    st.metric("獲利天數比例", f"{profit_rate:.1f}%")
-                    st.caption(f"{profitable_days}/{total_days} 天")
+            # 數據匯出
+            st.header("數據匯出")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                if 'merged_df' in locals():
+                    csv_data = merged_df.to_csv(index=False)
+                    st.download_button("下載每日數據", data=csv_data, 
+                                     file_name=f"每日數據_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
+            
+            with col2:
+                if payment_methods and 'payment_df' in locals():
+                    payment_csv = payment_df.to_csv(index=False)
+                    st.download_button("下載付款分析", data=payment_csv,
+                                     file_name=f"付款分析_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
+            
+            with col3:
+                if shipping_methods and 'shipping_df' in locals():
+                    shipping_csv = shipping_df.to_csv(index=False)
+                    st.download_button("下載運送分析", data=shipping_csv,
+                                     file_name=f"運送分析_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
+            
+            with col4:
+                if 'merged_df' in locals():
+                    cost_csv = merged_df.to_csv(index=False)
+                    st.download_button("下載成本分析", data=cost_csv,
+                                     file_name=f"成本分析_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
             
             # 詳細數據表格
             if st.checkbox("顯示詳細數據"):
@@ -653,34 +627,8 @@ if len(date_range) == 2:
                             st.write(f"營業稅: ${business_tax:,.0f}")
                             st.write(f"**總成本: ${total_all_costs:,.0f}**")
                             st.write(f"**估計淨利: ${estimated_net_profit:,.0f}**")
+
             
-            # 數據匯出
-            st.header("數據匯出")
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                if 'merged_df' in locals():
-                    csv_data = merged_df.to_csv(index=False)
-                    st.download_button("下載每日數據", data=csv_data, 
-                                     file_name=f"每日數據_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
-            
-            with col2:
-                if payment_methods and 'payment_df' in locals():
-                    payment_csv = payment_df.to_csv(index=False)
-                    st.download_button("下載付款分析", data=payment_csv,
-                                     file_name=f"付款分析_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
-            
-            with col3:
-                if shipping_methods and 'shipping_df' in locals():
-                    shipping_csv = shipping_df.to_csv(index=False)
-                    st.download_button("下載運送分析", data=shipping_csv,
-                                     file_name=f"運送分析_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
-            
-            with col4:
-                if 'daily_cost_df' in locals():
-                    cost_csv = daily_cost_df.to_csv(index=False)
-                    st.download_button("下載成本分析", data=cost_csv,
-                                     file_name=f"成本分析_{datetime.now().strftime('%Y%m%d_%H%M')}.csv", mime="text/csv")
         else:
             st.warning("無法獲取數據，請檢查 API 連接設定")
     else:
@@ -693,48 +641,43 @@ with st.expander("使用說明"):
     st.markdown("""
     ### 電商業績分析儀表板
     
-    **營運總覽**
-    - 總營收：所有完成訂單的總金額
-    - 總訂單數：分析期間內的訂單數量
-    - 客單價：總營收除以總訂單數
-    - 估計淨利：扣除所有成本後的估計利潤（包含廣告費）
+    #### 🔒 安全模式 vs ⚠️ 基本模式
     
-    **成本分析**
-    - 估計進貨成本：可調整的進貨成本率（預設 50%）
-    - 運費：根據運送方式自動計算的物流成本
-    - 金流服務費：依付款方式計算的手續費
-    - 廣告費：Meta 廣告平台的總支出
-    - 營業稅：營收的 5%
+    **安全模式（推薦）:**
+    - API 金鑰透過 Streamlit Secrets 安全管理
+    - Meta Token 自動刷新機制
+    - 生產環境最佳選擇
+    - 無需每次手動輸入敏感資訊
     
-    **廣告數據**
-    - 總曝光：廣告的總曝光次數
-    - 總點擊：廣告的總點擊次數
-    - 點擊率：點擊數除以曝光數的百分比
-    - ROAS：廣告投資報酬率（總營收/廣告費）
+    **基本模式:**
+    - 需要手動輸入 API 金鑰
+    - 適用於開發和測試環境
+    - Token 需手動管理
     
-    **詳細數據分析**
-    - 每日營收與成本：顯示每日營收及各項成本分解
-    - 每日績效：營收、廣告支出和ROAS趨勢
-    - 訂單明細：所有訂單的詳細資訊
-    - 廣告績效：Meta廣告的詳細指標
-    - 成本明細：各項成本的詳細計算
+    #### 💡 部署建議
+    1. 使用 Streamlit Community Cloud 進行免費部署
+    2. 在部署設定中配置 Secrets 以啟用安全模式
+    3. 定期檢查 Meta Token 狀態並更新
     
-    **計算公式**
-    - 估計淨利 = 總營收 - 估計進貨成本 - 運費 - 金流服務費 - 廣告費 - 營業稅
-    - 總成本 = 估計進貨成本 + 運費 + 金流服務費 + 廣告費 + 營業稅
+    #### 📊 功能說明
+    - **營運總覽**: 總營收、訂單數、客單價、估計淨利
+    - **成本分析**: 進貨成本、運費、手續費、廣告費、稅務
+    - **廣告數據**: 曝光、點擊、CTR、ROAS 等關鍵指標
+    - **趨勢分析**: 每日營收、成本、獲利趨勢圖表
+    - **詳細報表**: 可下載的 CSV 格式分析報告
     
-    **費率設定**
-    - 運費：全家 $69、萊爾富 $58、宅配 $180
-    - 金流服務費：超商取貨付款 0.53%、Line Pay 2.94%、信用卡 2.5725%
-    - 營業稅：5%
-    - 進貨成本率：可在側邊欄調整（預設 50%）
+    #### 🛠️ 技術特點
+    - 自動 API 錯誤處理和重試機制
+    - Meta Long-lived Token 自動刷新
+    - 多重安全驗證和資料加密
+    - 響應式設計，支援多設備存取
     """)
 
 # 頁腳
 st.markdown("---")
-st.markdown("""
+st.markdown(f"""
     <div style='text-align: center; color: #6b7280; padding: 1rem;'>
-        <strong>電商業績分析儀表板</strong><br>
-        專業電商數據分析平台 | 整合成本分析與獲利計算
+        <strong>電商業績分析儀表板 v2.0</strong><br>
+        {'🔒 安全模式' if SECURE_MODE else '⚠️ 基本模式'} | 專業電商數據分析平台
     </div>
     """, unsafe_allow_html=True)

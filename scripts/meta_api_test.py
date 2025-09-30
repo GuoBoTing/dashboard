@@ -8,6 +8,7 @@
 import requests
 import json
 from datetime import datetime, timedelta
+import python-dotenv
 
 def test_meta_api():
     """簡單的 Meta API 測試"""
@@ -16,10 +17,10 @@ def test_meta_api():
     print("=" * 50)
     
     # ⚠️ 請在這裡填入你的 Access Token
-    ACCESS_TOKEN = "EAAgilHDit9sBPciQ7txcmlGKBwHrFziWfE18L8QX8xPunp2jnUZBcAWx8G2ZCZCJdHXZCRRZC4ujRUPyDmsyTrSIWoRXZBn3Q7dyZBPhANbj9Cs5TvFuXG66vFYQhdBZC0ZBJQeflranPj2A6kuVwrdvADymhFMDTaRaTVOzxpgEQMQfdZATelDXItTi1Gaq9Cdm36Pi6GaEKJ"
+    ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
     
     # 檢查是否有設定 Token
-    if ACCESS_TOKEN == "YOUR_ACCESS_TOKEN_HERE":
+    if ACCESS_TOKEN:
         print("❌ 請先設定你的 Access Token！")
         print("請將上面的 YOUR_ACCESS_TOKEN_HERE 替換為你的實際 Token")
         print("Token 格式類似：EAAxxxxxxxxxxxxxxxxxxxxxxx")

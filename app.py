@@ -11,8 +11,9 @@ import json
 
 # 導入我們的安全配置模組
 try:
-    from config import Config, setup_api_connections, get_active_config
-    from meta_api_enhanced import get_enhanced_meta_ads_data, show_token_management, MetaAdsAPI
+    from src.config import Config, setup_api_connections, get_active_config
+    from src.api.meta_ads import get_enhanced_meta_ads_data, show_token_management, MetaAdsAPI
+    from src.api.meta_oauth import show_oauth_login_ui, get_oauth_token, is_oauth_authenticated
     SECURE_MODE = True
 except ImportError:
     # 如果模組不存在，回退到原始模式
@@ -118,35 +119,79 @@ else:
 with st.sidebar:
     st.header("設定面板")
     st.markdown("---")
-    
-    # 根據模式使用不同的配置方式
+
+    # Meta API 認證方式選擇
     if SECURE_MODE:
-        wc_configured, meta_configured = setup_api_connections()
+        st.subheader("Meta API 認證")
+        auth_method = st.radio(
+            "選擇認證方式",
+            ["OAuth 登入 (推薦)", "Token 管理", "基本模式"],
+            help="OAuth 登入最方便，會自動取得長期 Token"
+        )
+
+        if auth_method == "OAuth 登入 (推薦)":
+            # OAuth 認證
+            st.markdown("---")
+            _, meta_config = get_active_config()
+
+            # 從環境變數或 secrets 取得 OAuth 設定
+            import os
+            redirect_uri = meta_config.get('oauth_redirect_uri') or os.getenv('META_OAUTH_REDIRECT_URI', 'http://localhost:8501')
+
+            show_oauth_login_ui(
+                app_id=meta_config['app_id'],
+                app_secret=meta_config['app_secret'],
+                redirect_uri=redirect_uri
+            )
+
+            meta_configured = is_oauth_authenticated()
+
+            # WooCommerce 設定
+            st.markdown("---")
+            st.subheader("WooCommerce 設定")
+            wc_config, _ = get_active_config()
+            wc_configured = bool(wc_config.get('url') and wc_config.get('consumer_key'))
+            if wc_configured:
+                st.success(f"✅ 已連接到 {wc_config['url']}")
+            else:
+                st.warning("⚠️ 請在 secrets.toml 中設定 WooCommerce")
+
+        elif auth_method == "Token 管理":
+            # 原有的 Token 管理方式
+            wc_configured, meta_configured = setup_api_connections()
+
+            if meta_configured:
+                with st.expander("🔑 Token 管理", expanded=False):
+                    show_token_management()
+
+        else:  # 基本模式
+            wc_configured, meta_configured = setup_api_connections()
+
     else:
-        # 基本模式：手動輸入
+        # 非安全模式：手動輸入
         st.subheader("WooCommerce 設定")
         with st.expander("API 連接設定", expanded=True):
             wc_url = st.text_input("商店網址", value="", placeholder="https://your-store.com")
             wc_key = st.text_input("Consumer Key", type="password")
             wc_secret = st.text_input("Consumer Secret", type="password")
-        
+
         st.subheader("Meta 廣告設定")
         with st.expander("API 連接設定", expanded=False):
             meta_token = st.text_input("存取權杖", type="password")
             meta_account_id = st.text_input("廣告帳號 ID", placeholder="act_xxxxxxxxx")
-        
+
         wc_configured = bool(wc_url and wc_key and wc_secret)
         meta_configured = bool(meta_token and meta_account_id)
-    
+
     st.markdown("---")
     st.subheader("連接狀態")
     st.write(f"WooCommerce: {'🟢 已連接' if wc_configured else '🔴 未連接'}")
-    st.write(f"Meta 廣告: {'🟢 已連接' if meta_configured else '🔴 未連接'}")
-    
-    # 在安全模式下顯示 Token 管理
-    if SECURE_MODE and meta_configured:
-        with st.expander("🔑 Token 管理", expanded=False):
-            show_token_management()
+
+    # Meta 連接狀態 - 檢查 OAuth 或傳統方式
+    if SECURE_MODE and is_oauth_authenticated():
+        st.write("Meta 廣告: 🟢 已透過 OAuth 認證")
+    else:
+        st.write(f"Meta 廣告: {'🟢 已連接' if meta_configured else '🔴 未連接'}")
     
     st.markdown("---")
     st.subheader("成本設定")

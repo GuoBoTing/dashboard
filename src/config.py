@@ -40,17 +40,19 @@ class Config:
                     'app_id': st.secrets.meta.app_id,
                     'app_secret': st.secrets.meta.app_secret,
                     'account_id': st.secrets.meta.account_id,
-                    'long_lived_token': st.secrets.meta.get('long_lived_token', '')
+                    'long_lived_token': st.secrets.meta.get('long_lived_token', ''),
+                    'oauth_redirect_uri': st.secrets.meta.get('oauth_redirect_uri', 'http://localhost:8501')
                 }
         except Exception:
             pass
-        
+
         # 備用：從環境變數讀取
         return {
             'app_id': os.getenv('META_APP_ID', ''),
             'app_secret': os.getenv('META_APP_SECRET', ''),
             'account_id': os.getenv('META_ACCOUNT_ID', ''),
-            'long_lived_token': os.getenv('META_LONG_LIVED_TOKEN', '')
+            'long_lived_token': os.getenv('META_LONG_LIVED_TOKEN', ''),
+            'oauth_redirect_uri': os.getenv('META_OAUTH_REDIRECT_URI', 'http://localhost:8501')
         }
     
     def is_configured(self) -> Tuple[bool, bool]:
