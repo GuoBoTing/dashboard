@@ -52,7 +52,7 @@ Meta API 有三種 Token 類型：
 
 ```bash
 # 使用 curl 換取長期 token
-curl -X GET "https://graph.facebook.com/v21.0/oauth/access_token" \
+curl -X GET "https://graph.facebook.com/v23.0/oauth/access_token" \
   -d "grant_type=fb_exchange_token" \
   -d "client_id=YOUR_APP_ID" \
   -d "client_secret=YOUR_APP_SECRET" \

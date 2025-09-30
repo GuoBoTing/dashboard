@@ -298,7 +298,7 @@ def get_enhanced_woocommerce_data(url, key, secret, start_date, end_date):
 def get_meta_ads_data_basic(token, account_id, start_date, end_date):
     try:
         if not account_id.startswith('act_'): account_id = f"act_{account_id}"
-        url = f"https://graph.facebook.com/v21.0/{account_id}/insights"
+        url = f"https://graph.facebook.com/v23.0/{account_id}/insights"
         params = {
             'access_token': token, 'fields': 'spend,impressions,clicks,reach,frequency,cpm,cpc,ctr',
             'time_range': json.dumps({

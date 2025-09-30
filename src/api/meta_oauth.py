@@ -20,9 +20,9 @@ class MetaOAuth:
         self.app_id = app_id
         self.app_secret = app_secret
         self.redirect_uri = redirect_uri
-        self.base_url = "https://www.facebook.com/v21.0/dialog/oauth"
-        self.token_url = "https://graph.facebook.com/v21.0/oauth/access_token"
-        self.exchange_url = "https://graph.facebook.com/v21.0/oauth/access_token"
+        self.base_url = "https://www.facebook.com/v23.0/dialog/oauth"
+        self.token_url = "https://graph.facebook.com/v23.0/oauth/access_token"
+        self.exchange_url = "https://graph.facebook.com/v23.0/oauth/access_token"
 
         # OAuth 權限範圍
         self.scope = [

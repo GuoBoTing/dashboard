@@ -13,7 +13,7 @@ class MetaAdsAPI:
         self.app_id = app_id
         self.app_secret = app_secret
         self.account_id = account_id if account_id.startswith('act_') else f"act_{account_id}"
-        self.base_url = "https://graph.facebook.com/v21.0"
+        self.base_url = "https://graph.facebook.com/v23.0"
         self.current_token = long_lived_token
         
         # 從 session state 恢復 token 信息

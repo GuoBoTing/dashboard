@@ -90,7 +90,7 @@ if is_oauth_authenticated():
         with st.spinner("正在測試 API..."):
             try:
                 # 測試取得帳號資訊
-                url = f"https://graph.facebook.com/v21.0/{account_id}"
+                url = f"https://graph.facebook.com/v23.0/{account_id}"
                 params = {
                     'access_token': token,
                     'fields': 'name,account_status,currency,amount_spent'

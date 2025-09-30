@@ -47,7 +47,7 @@ DEFAULT_DATE_RANGE_DAYS = 30  # 預設查詢天數
 # ============================================
 # Meta API 設定
 # ============================================
-META_API_VERSION = "v21.0"
+META_API_VERSION = "v23.0"
 META_TOKEN_REFRESH_THRESHOLD_DAYS = 7  # Token 剩餘天數少於此值時自動刷新
 
 # ============================================

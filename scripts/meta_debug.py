@@ -37,7 +37,7 @@ def debug_meta_api(access_token, account_id, days_back=7):
     print()
 
     # API 設定
-    url = f"https://graph.facebook.com/v21.0/{account_id}/insights"
+    url = f"https://graph.facebook.com/v23.0/{account_id}/insights"
 
     # 正確的時間範圍格式
     time_range = json.dumps({
@@ -151,7 +151,7 @@ def test_account_access(access_token, account_id):
     if not account_id.startswith('act_'):
         account_id = f"act_{account_id}"
 
-    url = f"https://graph.facebook.com/v21.0/{account_id}"
+    url = f"https://graph.facebook.com/v23.0/{account_id}"
     params = {
         'access_token': access_token,
         'fields': 'name,account_status,currency,amount_spent,balance'
