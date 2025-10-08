@@ -198,13 +198,14 @@ class MetaTokenManager:
             env_token = os.getenv('META_LONG_LIVED_TOKEN')
             if env_token:
                 # 從環境變數建立 token 資料
-                # 由於環境變數沒有到期時間，設定為 60 天後
-                expires_at = datetime.now() + timedelta(days=60)
+                # 設定為永不過期（實際上 Meta Token 有 60 天期限，但由使用者手動更新）
+                expires_at = datetime.now() + timedelta(days=365)  # 設定為 1 年後，避免自動刷新
                 token_data = {
-                    'access_token': env_token,
+                    'access_token': env_token.strip(),  # 去除可能的空白字元
                     'expires_at': expires_at.isoformat(),
-                    'expires_in': 5183944,  # 60 天
-                    'created_at': datetime.now().isoformat()
+                    'expires_in': 31536000,  # 1 年（秒）
+                    'created_at': datetime.now().isoformat(),
+                    'from_env': True  # 標記為來自環境變數
                 }
                 # 快取到 session
                 st.session_state.meta_token_data = token_data
@@ -267,11 +268,15 @@ class MetaTokenManager:
         if not token_data:
             return None
 
-        # 2. 檢查是否有效
+        # 2. 如果是來自環境變數的 Token，直接返回（不自動刷新）
+        if token_data.get('from_env'):
+            return token_data['access_token']
+
+        # 3. 檢查是否有效
         if self.is_token_valid(token_data):
             return token_data['access_token']
 
-        # 3. 如果即將過期，嘗試自動刷新
+        # 4. 如果即將過期，嘗試自動刷新（僅限非環境變數的 Token）
         try:
             st.info("🔄 Token 即將過期，正在自動刷新...")
             new_token_data = self.refresh_token(token_data['access_token'])
@@ -349,18 +354,30 @@ def show_token_manager_ui(app_id: str, app_secret: str) -> Optional[str]:
 
         # 顯示 Token（摺疊）
         with st.expander("🔍 查看 Token 資訊"):
-            st.text_input("Access Token", value=current_token, type="password", disabled=True)
-            st.caption(f"完整 Token: {current_token[:50]}...")
+            # 顯示完整 Token（可複製）
+            st.text_area(
+                "完整 Access Token（可複製）",
+                value=current_token,
+                height=100,
+                help="請複製此 Token 到 Zeabur 環境變數"
+            )
+
+            st.caption(f"Token 長度: {len(current_token)} 字元")
+            st.caption(f"開頭: {current_token[:20]}...")
+            st.caption(f"結尾: ...{current_token[-20:]}")
 
             # Zeabur 環境變數設定提示
             if manager.storage_mode == "session":
                 st.markdown("---")
                 st.markdown("**💾 長期儲存到 Zeabur 環境變數：**")
-                st.code(f"""
-# 在 Zeabur 專案設定中新增以下環境變數：
-META_LONG_LIVED_TOKEN={current_token}
-                """, language="bash")
-                st.caption("⚠️ 新增後需要重新部署服務才會生效")
+                st.code(f"META_LONG_LIVED_TOKEN={current_token}", language="bash")
+                st.caption("⚠️ 複製上方完整 Token 到 Zeabur → Variables → META_LONG_LIVED_TOKEN")
+            else:
+                st.markdown("---")
+                st.markdown("**💾 設定到 Zeabur（如需雲端部署）：**")
+                st.caption("1. 複製上方完整 Token")
+                st.caption("2. 在 Zeabur Variables 中新增 META_LONG_LIVED_TOKEN")
+                st.caption("3. 貼上 Token 並儲存")
 
             if st.button("🗑️ 刪除 Token"):
                 manager.delete_token()

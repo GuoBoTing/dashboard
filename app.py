@@ -8,6 +8,11 @@ import requests
 from requests.auth import HTTPBasicAuth
 import numpy as np
 import json
+import os
+
+# 載入 .env 環境變數
+from dotenv import load_dotenv
+load_dotenv()
 
 # 導入我們的安全配置模組
 try:
@@ -335,6 +340,9 @@ if len(date_range) == 2:
         if meta_configured:
             if SECURE_MODE:
                 _, meta_config = get_active_config()
+                # 使用新的 Token 管理器的 Token（如果有的話）
+                if 'meta_access_token' in st.session_state:
+                    meta_config['long_lived_token'] = st.session_state.meta_access_token
                 ads_df = get_enhanced_meta_ads_data(meta_config, start_date, end_date, debug_mode)
             else:
                 ads_df = get_meta_ads_data_basic(meta_token, meta_account_id, start_date, end_date)
