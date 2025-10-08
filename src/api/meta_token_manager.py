@@ -334,13 +334,27 @@ def show_token_manager_ui(app_id: str, app_secret: str) -> Optional[str]:
         col1, col2, col3 = st.columns(3)
 
         with col1:
-            expires_at = datetime.fromisoformat(token_data['expires_at'])
-            days_left = (expires_at - datetime.now()).days
-            st.metric("剩餘天數", f"{days_left} 天")
-
-        with col2:
             created_at = datetime.fromisoformat(token_data['created_at'])
             st.metric("建立日期", created_at.strftime("%Y-%m-%d"))
+
+        with col2:
+            # 計算實際使用天數（從建立日期開始）
+            days_used = (datetime.now() - created_at).days
+            # Meta 長期 Token 有效期是 60 天
+            recommend_update_days = 50
+
+            if token_data.get('from_env'):
+                # 環境變數 Token：顯示已使用天數和建議更新提醒
+                if days_used >= recommend_update_days:
+                    st.metric("已使用", f"{days_used} 天", delta="⚠️ 建議更新", delta_color="inverse")
+                else:
+                    days_until_update = recommend_update_days - days_used
+                    st.metric("已使用", f"{days_used} 天", delta=f"{days_until_update} 天後更新")
+            else:
+                # 本地 Token：顯示剩餘天數
+                expires_at = datetime.fromisoformat(token_data['expires_at'])
+                days_left = (expires_at - datetime.now()).days
+                st.metric("剩餘天數", f"{days_left} 天")
 
         with col3:
             if st.button("🔄 手動更新 Token"):
