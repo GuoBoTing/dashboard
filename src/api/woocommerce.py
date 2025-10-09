@@ -32,14 +32,14 @@ class WooCommerceAPI:
         self.endpoint = f"{self.url}/wp-json/wc/{WC_API_VERSION}/orders"
 
     def get_orders(self, start_date: datetime, end_date: datetime,
-                   status: str = 'completed,processing,on-hold') -> Tuple[pd.DataFrame, Dict, Dict]:
+                   status: str = 'completed,processing,on-hold,wmp-in-transit,wmp-shipped,ry-at-cvs') -> Tuple[pd.DataFrame, Dict, Dict]:
         """
         獲取訂單數據
 
         Args:
             start_date: 開始日期
             end_date: 結束日期
-            status: 訂單狀態（逗號分隔）
+            status: 訂單狀態（逗號分隔），預設包含標準狀態和自訂狀態
 
         Returns:
             (orders_df, payment_methods, shipping_methods)
