@@ -232,7 +232,7 @@ def get_enhanced_woocommerce_data(url, key, secret, start_date, end_date):
         params = {
             'after': start_date.strftime('%Y-%m-%d') + 'T00:00:00',
             'before': end_date.strftime('%Y-%m-%d') + 'T23:59:59',
-            'per_page': 100, 'status': 'completed,processing,on-hold', 'orderby': 'date', 'order': 'desc'
+            'per_page': 100, 'status': 'completed,processing,on-hold,wmp-in-transit,wmp-shipped,ry-at-cvs', 'orderby': 'date', 'order': 'desc'
         }
         
         with st.spinner("正在獲取 WooCommerce 數據..."):
