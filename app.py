@@ -487,15 +487,44 @@ if len(date_range) == 2:
                 merged_df = ads_df.groupby('date')['spend'].sum().reset_index()
                 merged_df['revenue'] = 0
             
-            # 計算每日指標
+            # 計算每日運費和金流手續費（基於實際訂單）
+            if not orders_df.empty:
+                # 每日運費計算
+                daily_shipping = orders_df.groupby('date')['shipping_method'].apply(
+                    lambda methods: sum(
+                        next((cost for key, cost in SHIPPING_COSTS.items()
+                              if key.lower() in method.lower() or method.lower() in key.lower()), 0)
+                        for method in methods
+                    )
+                ).reset_index()
+                daily_shipping.columns = ['date', 'daily_shipping_cost']
+
+                # 每日金流手續費計算
+                daily_payment = orders_df.groupby('date').apply(
+                    lambda group: sum(
+                        float(row['total']) * (next((rate for key, rate in PAYMENT_FEES.items()
+                                                     if key.lower() in row['payment_method'].lower()
+                                                     or row['payment_method'].lower() in key.lower()), 0) / 100)
+                        for _, row in group.iterrows()
+                    )
+                ).reset_index()
+                daily_payment.columns = ['date', 'daily_payment_fee']
+
+                # 合併運費和手續費到 merged_df
+                merged_df = pd.merge(merged_df, daily_shipping, on='date', how='left')
+                merged_df = pd.merge(merged_df, daily_payment, on='date', how='left')
+                merged_df['daily_shipping_cost'] = merged_df['daily_shipping_cost'].fillna(0)
+                merged_df['daily_payment_fee'] = merged_df['daily_payment_fee'].fillna(0)
+            else:
+                merged_df['daily_shipping_cost'] = 0
+                merged_df['daily_payment_fee'] = 0
+
+            # 計算其他每日指標
             merged_df['roas'] = merged_df['revenue'] / merged_df['spend'].replace(0, 1)
-            days_count = len(merged_df)
             merged_df['estimated_cogs'] = merged_df['revenue'] * (cogs_rate / 100)
-            merged_df['daily_shipping_cost'] = total_shipping_cost / days_count if days_count > 0 else 0
-            merged_df['daily_payment_fee'] = total_payment_fee / days_count if days_count > 0 else 0
             merged_df['business_tax'] = merged_df['revenue'] * TAX_RATE
-            merged_df['estimated_net_profit'] = (merged_df['revenue'] - merged_df['estimated_cogs'] - 
-                                               merged_df['daily_shipping_cost'] - merged_df['daily_payment_fee'] - 
+            merged_df['estimated_net_profit'] = (merged_df['revenue'] - merged_df['estimated_cogs'] -
+                                               merged_df['daily_shipping_cost'] - merged_df['daily_payment_fee'] -
                                                merged_df['spend'] - merged_df['business_tax'])
             
             # 圖表
