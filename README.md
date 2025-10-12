@@ -48,36 +48,32 @@ Flambé Dashboard 是一個基於 Streamlit 開發的電商業績分析儀表板
    pip install -r requirements.txt
    ```
 
-4. **配置 API 金鑰**
+4. **配置環境變數**
 
-   建立 `.streamlit/secrets.toml` 檔案：
+   建立 `.env` 檔案（本地開發）：
    ```bash
-   mkdir -p .streamlit
-   nano .streamlit/secrets.toml
+   nano .env
    ```
 
    填入以下內容：
-   ```toml
-   [woocommerce]
-   url = "https://your-store.com"
-   consumer_key = "ck_xxxxxxxxxxxxx"
-   consumer_secret = "cs_xxxxxxxxxxxxx"
+   ```bash
+   # Meta API 設定
+   META_APP_ID=123456789
+   META_APP_SECRET=abcdef123456
+   META_ACCOUNT_ID=act_123456789
+   META_LONG_LIVED_TOKEN=    # 可選，可透過 UI 生成
 
-   [meta]
-   app_id = "123456789"
-   app_secret = "abcdef123456"
-   account_id = "act_123456789"
-   long_lived_token = ""           # 可選，可透過 UI 生成
-   oauth_redirect_uri = "http://localhost:8501"  # OAuth 認證用
+   # WooCommerce API 設定
+   WC_URL=https://your-store.com
+   WC_CONSUMER_KEY=ck_xxxxxxxxxxxxx
+   WC_CONSUMER_SECRET=cs_xxxxxxxxxxxxx
    ```
 
-   > 💡 **兩種認證方式**：
-   > - **方式 1（推薦）**：使用 OAuth 2.0 登入，在 UI 點擊「使用 Meta 登入」自動取得 token
-   > - **方式 2**：手動在 UI 的「Token 管理」區塊，用短期 token 換取長期 token
+   > 💡 **Token 管理方式**：
+   > - **本地開發**：在 UI 的「Token 管理」區塊輸入短期 token，系統會自動轉換為長期 token 並儲存
+   > - **Zeabur 部署**：將長期 token 設定到環境變數 `META_LONG_LIVED_TOKEN`，系統會自動載入
    >
-   > 詳細設定請參考：[OAUTH_SETUP.md](OAUTH_SETUP.md)
-
-   ```
+   > 詳細設定請參考：[TOKEN_管理指南.md](TOKEN_管理指南.md) 和 [ZEABUR_部署指南.md](ZEABUR_部署指南.md)
 
 5. **啟動儀表板**
    ```bash
@@ -132,15 +128,21 @@ Flambé Dashboard 是一個基於 Streamlit 開發的電商業績分析儀表板
 flambe-dashboard/
 ├── app.py                      # 主程式入口 ⭐
 ├── config.py                   # 配置管理模組
-├── meta_api_enhanced.py        # Meta API 客戶端（含自動 Token 刷新）
-├── meta_api_test.py            # Meta API 測試腳本
-├── meta_debug.py               # Meta API 調試工具
 ├── requirements.txt            # Python 依賴清單
 ├── .gitignore                  # Git 忽略規則
 ├── .env                        # 環境變數（不提交到 Git）
 │
+├── src/api/
+│   ├── meta_token_manager.py  # Meta Token 自動管理模組 🆕
+│   └── woocommerce.py          # WooCommerce API 客戶端
+│
+├── test_1007.py                # 10/7 特定日期訂單測試
+├── test_wc_orders.py           # WooCommerce 訂單狀態測試
+│
 ├── CLAUDE.md                   # Claude Code 開發指南
 ├── README.md                   # 專案說明（本檔案）
+├── TOKEN_管理指南.md           # Token 管理完整說明 🆕
+├── ZEABUR_部署指南.md          # Zeabur 部署步驟 🆕
 ├── CURRENT_STRUCTURE.md        # 當前結構分析
 ├── PROJECT_STRUCTURE.md        # 重組計劃
 └── META_API_修復指南.md        # Meta API 故障排除
@@ -166,8 +168,8 @@ flambe-dashboard/
 | 成本類型 | 計算方式 | 說明 |
 |---------|---------|------|
 | **進貨成本 (COGS)** | 營收 × 成本率 | 可透過滑桿調整（20%-80%）|
-| **運費** | 訂單數 × 單筆運費 | 根據運送方式自動匹配費率 |
-| **金流手續費** | 交易金額 × 手續費率 | 根據付款方式自動匹配費率 |
+| **運費** | 每日訂單實際運費累加 | 根據每筆訂單的運送方式計算（宅配/超商/郵寄） |
+| **金流手續費** | 每日訂單實際手續費累加 | 根據每筆訂單的付款方式和金額計算 |
 | **廣告費** | Meta API 直接取得 | 實際廣告支出 |
 | **營業稅** | 營收 × 5% | 固定稅率 |
 
@@ -175,6 +177,11 @@ flambe-dashboard/
 ```
 淨利 = 營收 - (進貨成本 + 運費 + 金流手續費 + 廣告費 + 營業稅)
 ```
+
+> ⚠️ **重要更新（2025-10-12）**：
+> - 運費和金流手續費已改為**按實際訂單計算**，而非按日平均分配
+> - 每日成本 = 當日所有訂單的實際運費/手續費總和
+> - 無訂單的日期成本為 0，避免虛假成本分配
 
 ### 運費與手續費設定
 
@@ -222,9 +229,38 @@ flambe-dashboard/
 ## 📝 開發文件
 
 - **[CLAUDE.md](CLAUDE.md)** - 開發者指南與架構說明
+- **[TOKEN_管理指南.md](TOKEN_管理指南.md)** - Meta Token 管理完整說明
+- **[ZEABUR_部署指南.md](ZEABUR_部署指南.md)** - Zeabur 雲端部署步驟
 - **[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)** - 專案重構計劃
 - **[CURRENT_STRUCTURE.md](CURRENT_STRUCTURE.md)** - 當前結構分析
 - **[META_API_修復指南.md](META_API_修復指南.md)** - API 故障排除
+
+## 🔧 測試工具
+
+專案包含以下測試腳本：
+
+- **test_1007.py** - 測試特定日期（10/7）的訂單資料，用於驗證自訂訂單狀態
+- **test_wc_orders.py** - 測試不同訂單狀態組合的資料抓取，確認營收計算準確性
+
+執行測試：
+```bash
+source venv/bin/activate
+python test_1007.py          # 測試特定日期
+python test_wc_orders.py     # 測試訂單狀態
+```
+
+## 🆕 最近更新
+
+### v2.1 (2025-10-12)
+- ✅ 修正運費和金流手續費計算方式為按實際訂單計算
+- ✅ 支援 WooCommerce 自訂訂單狀態（wmp-in-transit, wmp-shipped, ry-at-cvs）
+- ✅ 新增 Token 自動管理系統，支援本地和雲端部署
+- ✅ 新增 Zeabur 部署支援和環境變數配置
+
+### v2.0 (2025-09-30)
+- ✅ 整合 WooCommerce 和 Meta Ads 數據
+- ✅ 實現自動 Token 刷新機制
+- ✅ 新增成本分析和淨利計算功能
 
 ## 🤝 貢獻
 
@@ -240,6 +276,6 @@ flambe-dashboard/
 
 ---
 
-**最後更新**：2025-09-30  
-**版本**：v2.0  
+**最後更新**：2025-10-12
+**版本**：v2.1
 **維護狀態**：✅ 活躍維護中
