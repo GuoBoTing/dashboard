@@ -19,7 +19,6 @@ try:
     from src.config import Config, setup_api_connections, get_active_config
     from src.api.meta_ads import get_enhanced_meta_ads_data, show_token_management, MetaAdsAPI
     from src.api.meta_token_manager import show_token_manager_ui, MetaTokenManager
-    from src.rfm_analysis_module import show_rfm_analysis_tab
     SECURE_MODE = True
 except ImportError:
     # 如果模組不存在，回退到原始模式
@@ -818,7 +817,12 @@ if len(date_range) == 2:
                 
                 # RFM 客戶分群分析
                 with tab6:
-                    show_rfm_analysis_tab(orders_df, end_date)
+                    try:
+                        from src.rfm_analysis_module import show_rfm_analysis_tab
+                        show_rfm_analysis_tab(orders_df, end_date)
+                    except Exception as e:
+                        st.error(f"RFM 模組載入失敗: {str(e)}")
+                        st.info("請確認 src/rfm_analysis_module.py 存在且語法正確")
         else:
             st.warning("無法獲取數據，請檢查 API 連接設定")
     else:
