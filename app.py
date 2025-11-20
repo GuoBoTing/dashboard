@@ -224,6 +224,55 @@ def calculate_payment_fees(orders_df):
             total_payment_fee += fee_amount
     return payment_fees, total_payment_fee
 
+
+def calculate_repeat_purchase_rate(orders_df, current_start_date, current_end_date):
+    """
+    計算本週回購率（回頭客比例）
+    
+    參數:
+        orders_df: 所有訂單的 DataFrame
+        current_start_date: 本週開始日期
+        current_end_date: 本週結束日期
+    
+    返回:
+        repeat_rate: 回購率（百分比）
+        repeat_customers: 回頭客數量
+        total_customers: 總客戶數量
+    """
+    if orders_df.empty:
+        return 0.0, 0, 0
+    
+    # 確保 date 欄位是 datetime 類型
+    orders_df['date'] = pd.to_datetime(orders_df['date'])
+    
+    # 本週訂單
+    current_week_orders = orders_df[
+        (orders_df['date'] >= pd.to_datetime(current_start_date)) & 
+        (orders_df['date'] <= pd.to_datetime(current_end_date))
+    ]
+    
+    # 本週之前的訂單
+    historical_orders = orders_df[orders_df['date'] < pd.to_datetime(current_start_date)]
+    
+    if current_week_orders.empty:
+        return 0.0, 0, 0
+    
+    # 本週購買的客戶（排除 customer_id = 0，代表訪客結帳）
+    current_customers = set(current_week_orders[current_week_orders['customer_id'] != 0]['customer_id'].unique())
+    
+    # 歷史購買過的客戶
+    historical_customers = set(historical_orders[historical_orders['customer_id'] != 0]['customer_id'].unique())
+    
+    # 回頭客：本週購買且之前也購買過的客戶
+    repeat_customers = current_customers.intersection(historical_customers)
+    
+    total_customers = len(current_customers)
+    repeat_customer_count = len(repeat_customers)
+    
+    # 計算回購率
+    repeat_rate = (repeat_customer_count / total_customers * 100) if total_customers > 0 else 0.0
+    
+    return repeat_rate, repeat_customer_count, total_customers
 def get_enhanced_woocommerce_data(url, key, secret, start_date, end_date):
     try:
         clean_url = url.rstrip('/')
@@ -374,13 +423,17 @@ if len(date_range) == 2:
             roas = total_revenue / total_ad_spend if total_ad_spend > 0 else 0
             ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
             
+            # 計算回購率
+            repeat_rate, repeat_count, total_count = calculate_repeat_purchase_rate(orders_df, start_date, end_date)
+            
             # 營運總覽
             st.markdown("""<div class="clean-section-header"><h2>營運總覽</h2></div>""", unsafe_allow_html=True)
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3, col4, col5 = st.columns(5)
             with col1: st.metric("總營收", f"${total_revenue:,.0f}")
             with col2: st.metric("總訂單數", f"{total_orders:,}")
             with col3: st.metric("客單價", f"${avg_order_value:.0f}")
-            with col4: st.metric("估計淨利", f"${estimated_net_profit:,.0f}")
+            with col4: st.metric("本週回購率", f"{repeat_rate:.1f}%")
+            with col5: st.metric("估計淨利", f"${estimated_net_profit:,.0f}")
             
             # 成本分析
             st.markdown(f"""<div class="clean-section-header"><h2>成本分析（總成本：${total_all_costs:,.0f}）</h2></div>""", unsafe_allow_html=True)
