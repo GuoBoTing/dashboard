@@ -19,6 +19,7 @@ try:
     from src.config import Config, setup_api_connections, get_active_config
     from src.api.meta_ads import get_enhanced_meta_ads_data, show_token_management, MetaAdsAPI
     from src.api.meta_token_manager import show_token_manager_ui, MetaTokenManager
+    from src.rfm_analysis_module import show_rfm_analysis_tab
     SECURE_MODE = True
 except ImportError:
     # 如果模組不存在，回退到原始模式
@@ -707,7 +708,7 @@ if len(date_range) == 2:
             # 詳細數據表格
             if st.checkbox("顯示詳細數據"):
                 st.header("詳細分析數據")
-                tab1, tab2, tab3, tab4, tab5 = st.tabs(["每日營收與成本", "每日績效", "訂單明細", "廣告績效", "成本明細"])
+                tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["每日營收與成本", "每日績效", "訂單明細", "廣告績效", "成本明細", "RFM 客戶分群"])
                 
                 with tab1:
                     if 'merged_df' in locals() and not merged_df.empty:
@@ -814,6 +815,10 @@ if len(date_range) == 2:
                             st.write(f"**估計淨利: ${estimated_net_profit:,.0f}**")
 
             
+                
+                # RFM 客戶分群分析
+                with tab6:
+                    show_rfm_analysis_tab(orders_df, end_date)
         else:
             st.warning("無法獲取數據，請檢查 API 連接設定")
     else:
