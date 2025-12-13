@@ -226,16 +226,17 @@ def calculate_payment_fees(orders_df):
 
 
 
+@st.cache_data(ttl=3600, show_spinner=False)  # 快取1小時，歷史數據不常變化
 def get_historical_emails(url, key, secret, before_date):
     """
     查詢歷史訂單的 email（最近 12 個月）
-    
+
     參數:
         url: WooCommerce 商店 URL
         key: Consumer Key
-        secret: Consumer Secret  
+        secret: Consumer Secret
         before_date: 查詢此日期之前的訂單
-    
+
     返回:
         set: 歷史客戶 email 集合（小寫）
     """
@@ -343,6 +344,7 @@ def calculate_new_customer_rate(orders_df, current_start_date, current_end_date,
     
     return new_customer_rate, new_orders_count, total_orders
 
+@st.cache_data(ttl=300, show_spinner=False)  # 快取5分鐘，平衡數據新鮮度和性能
 def get_enhanced_woocommerce_data(url, key, secret, start_date, end_date):
     try:
         clean_url = url.rstrip('/')
@@ -399,6 +401,7 @@ def get_enhanced_woocommerce_data(url, key, secret, start_date, end_date):
         st.error(f"WooCommerce 連接錯誤: {str(e)}")
         return pd.DataFrame(), {}, {}
 
+@st.cache_data(ttl=300, show_spinner=False)  # 快取5分鐘
 def get_meta_ads_data_basic(token, account_id, start_date, end_date):
     try:
         if not account_id.startswith('act_'): account_id = f"act_{account_id}"
@@ -711,53 +714,75 @@ if len(date_range) == 2:
                 
                 with tab1:
                     if 'merged_df' in locals() and not merged_df.empty:
-                        daily_cost_df = merged_df[['date', 'revenue', 'estimated_cogs', 'daily_shipping_cost', 
+                        daily_cost_df = merged_df[['date', 'revenue', 'estimated_cogs', 'daily_shipping_cost',
                                                  'daily_payment_fee', 'spend', 'business_tax', 'estimated_net_profit']].copy()
-                        for col in ['revenue', 'estimated_cogs', 'daily_shipping_cost', 'daily_payment_fee', 'spend', 'business_tax', 'estimated_net_profit']:
-                            daily_cost_df[col] = daily_cost_df[col].apply(lambda x: f"${x:,.2f}")
                         daily_cost_df = daily_cost_df.rename(columns={
                             'date': '日期', 'revenue': '營收', 'estimated_cogs': '估計進貨成本',
                             'daily_shipping_cost': '運費', 'daily_payment_fee': '金流服務費',
                             'spend': '廣告費', 'business_tax': '營業稅', 'estimated_net_profit': '估計淨利'
                         })
-                        st.dataframe(daily_cost_df, use_container_width=True, hide_index=True)
+                        # 使用 column_config 統一格式化所有金額欄位
+                        money_columns = ['營收', '估計進貨成本', '運費', '金流服務費', '廣告費', '營業稅', '估計淨利']
+                        column_config = {col: st.column_config.NumberColumn(col, format="$%.2f") for col in money_columns}
+                        st.dataframe(daily_cost_df, use_container_width=True, hide_index=True, column_config=column_config)
                         st.info("💡 提示：運費和金流服務費按日平均分配計算")
                 
                 with tab2:
                     if 'merged_df' in locals() and not merged_df.empty:
                         display_df = merged_df[['date', 'revenue', 'spend', 'roas']].copy()
-                        for col in ['revenue', 'spend']:
-                            display_df[col] = display_df[col].apply(lambda x: f"${x:,.2f}")
-                        display_df['roas'] = display_df['roas'].apply(lambda x: f"{x:.2f}")
                         display_df = display_df.rename(columns={'date': '日期', 'revenue': '營收', 'spend': '廣告支出', 'roas': 'ROAS'})
-                        st.dataframe(display_df, use_container_width=True, hide_index=True)
+                        st.dataframe(
+                            display_df,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "營收": st.column_config.NumberColumn("營收", format="$%.2f"),
+                                "廣告支出": st.column_config.NumberColumn("廣告支出", format="$%.2f"),
+                                "ROAS": st.column_config.NumberColumn("ROAS", format="%.2f")
+                            }
+                        )
                 
                 with tab3:
                     if not orders_df.empty:
-                        display_orders = orders_df.copy()
-                        display_orders['total'] = display_orders['total'].apply(lambda x: f"${x:.2f}")
+                        display_orders = orders_df[['order_id', 'date', 'total', 'status', 'customer_id', 'payment_method', 'shipping_method']].copy()
+                        # 使用 Streamlit 的 column_config 來格式化，而不是 apply
                         display_orders = display_orders.rename(columns={
                             'order_id': '訂單ID', 'date': '日期', 'total': '金額', 'status': '狀態',
                             'customer_id': '客戶ID', 'payment_method': '付款方式', 'shipping_method': '運送方式'
                         })
-                        st.dataframe(display_orders, use_container_width=True, hide_index=True)
+                        st.dataframe(
+                            display_orders,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "金額": st.column_config.NumberColumn("金額", format="$%.2f")
+                            }
+                        )
                 
                 with tab4:
                     if not ads_df.empty:
                         display_ads = ads_df.copy()
-                        for col in ['spend', 'cpm', 'cpc']:
-                            if col in display_ads.columns:
-                                display_ads[col] = display_ads[col].apply(lambda x: f"${x:.2f}")
-                        for col in ['impressions', 'clicks', 'reach']:
-                            if col in display_ads.columns:
-                                display_ads[col] = display_ads[col].apply(lambda x: f"{x:,}")
-                        if 'ctr' in display_ads.columns:
-                            display_ads['ctr'] = display_ads['ctr'].apply(lambda x: f"{x:.2f}%")
                         display_ads = display_ads.rename(columns={
                             'date': '日期', 'spend': '廣告支出', 'impressions': '曝光數', 'clicks': '點擊數',
                             'reach': '觸及人數', 'ctr': '點擊率', 'cpm': '千次曝光成本', 'cpc': '單次點擊成本'
                         })
-                        st.dataframe(display_ads, use_container_width=True, hide_index=True)
+                        # 使用 column_config 格式化各種類型的數據
+                        ads_column_config = {}
+                        if '廣告支出' in display_ads.columns:
+                            ads_column_config['廣告支出'] = st.column_config.NumberColumn("廣告支出", format="$%.2f")
+                        if '千次曝光成本' in display_ads.columns:
+                            ads_column_config['千次曝光成本'] = st.column_config.NumberColumn("千次曝光成本", format="$%.2f")
+                        if '單次點擊成本' in display_ads.columns:
+                            ads_column_config['單次點擊成本'] = st.column_config.NumberColumn("單次點擊成本", format="$%.2f")
+                        if '曝光數' in display_ads.columns:
+                            ads_column_config['曝光數'] = st.column_config.NumberColumn("曝光數", format="%d")
+                        if '點擊數' in display_ads.columns:
+                            ads_column_config['點擊數'] = st.column_config.NumberColumn("點擊數", format="%d")
+                        if '觸及人數' in display_ads.columns:
+                            ads_column_config['觸及人數'] = st.column_config.NumberColumn("觸及人數", format="%d")
+                        if '點擊率' in display_ads.columns:
+                            ads_column_config['點擊率'] = st.column_config.NumberColumn("點擊率", format="%.2f%%")
+                        st.dataframe(display_ads, use_container_width=True, hide_index=True, column_config=ads_column_config)
                 
                 with tab5:
                     cost_details = []
