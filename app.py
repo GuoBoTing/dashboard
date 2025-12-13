@@ -226,8 +226,8 @@ def calculate_payment_fees(orders_df):
 
 
 
-@st.cache_data(ttl=3600, show_spinner=False)  # 快取1小時，歷史數據不常變化
-def get_historical_emails(url, key, secret, before_date):
+@st.cache_data(ttl=86400, show_spinner=False)  # 快取24小時（1天），每天只查詢一次
+def get_historical_emails(url, key, secret, cache_date=None):
     """
     查詢歷史訂單的 email（最近 12 個月）
 
@@ -235,7 +235,7 @@ def get_historical_emails(url, key, secret, before_date):
         url: WooCommerce 商店 URL
         key: Consumer Key
         secret: Consumer Secret
-        before_date: 查詢此日期之前的訂單
+        cache_date: 快取日期（用於控制快取，預設為今天）
 
     返回:
         set: 歷史客戶 email 集合（小寫）
@@ -244,13 +244,15 @@ def get_historical_emails(url, key, secret, before_date):
         clean_url = url.rstrip('/')
         endpoint = f"{clean_url}/wp-json/wc/v3/orders"
         auth = HTTPBasicAuth(key, secret)
-        
-        # 查詢範圍：before_date 往前推 12 個月
-        start_date = before_date - timedelta(days=365)
-        
+
+        # 使用今天的日期作為查詢終點，確保快取穩定
+        today = datetime.now().date()
+        # 查詢範圍：今天往前推 12 個月
+        start_date = today - timedelta(days=365)
+
         params = {
             'after': start_date.strftime('%Y-%m-%d') + 'T00:00:00',
-            'before': before_date.strftime('%Y-%m-%d') + 'T23:59:59',
+            'before': today.strftime('%Y-%m-%d') + 'T23:59:59',
             'per_page': 100,
             'status': 'completed,processing,on-hold,wmp-in-transit,wmp-shipped,ry-at-cvs',
             'orderby': 'date',
@@ -326,8 +328,8 @@ def calculate_new_customer_rate(orders_df, current_start_date, current_end_date,
     if current_week_orders.empty:
         return 0.0, 0, 0
     
-    # 查詢歷史 12 個月的客戶 email
-    historical_emails = get_historical_emails(wc_url, wc_key, wc_secret, current_start_date)
+    # 查詢歷史 12 個月的客戶 email（使用今天的日期作為快取鍵，避免因日期範圍變化而重新查詢）
+    historical_emails = get_historical_emails(wc_url, wc_key, wc_secret, cache_date=datetime.now().date())
     
     # 當週訂單中，email 不在歷史記錄中的訂單（視為新客戶訂單）
     # 同時處理空 email 的情況（視為新客戶）
