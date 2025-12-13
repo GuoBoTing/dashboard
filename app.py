@@ -25,6 +25,9 @@ except ImportError:
     SECURE_MODE = False
     st.warning("安全配置模組未找到，使用基本模式")
 
+# 全局常量：今天的日期（用於快取鍵，確保同一天內快取穩定）
+TODAY_STR = datetime.now().strftime('%Y-%m-%d')
+
 # 頁面設定
 st.set_page_config(
     page_title="商業分析儀表板",
@@ -227,7 +230,7 @@ def calculate_payment_fees(orders_df):
 
 
 @st.cache_data(ttl=86400, show_spinner=False)  # 快取24小時（1天），每天只查詢一次
-def get_historical_emails(url, key, secret, cache_date=None):
+def get_historical_emails(url, key, secret, cache_date_str):
     """
     查詢歷史訂單的 email（最近 12 個月）
 
@@ -235,7 +238,7 @@ def get_historical_emails(url, key, secret, cache_date=None):
         url: WooCommerce 商店 URL
         key: Consumer Key
         secret: Consumer Secret
-        cache_date: 快取日期（用於控制快取，預設為今天）
+        cache_date_str: 快取日期字符串（格式：YYYY-MM-DD），用於控制快取
 
     返回:
         set: 歷史客戶 email 集合（小寫）
@@ -328,8 +331,8 @@ def calculate_new_customer_rate(orders_df, current_start_date, current_end_date,
     if current_week_orders.empty:
         return 0.0, 0, 0
     
-    # 查詢歷史 12 個月的客戶 email（使用今天的日期作為快取鍵，避免因日期範圍變化而重新查詢）
-    historical_emails = get_historical_emails(wc_url, wc_key, wc_secret, cache_date=datetime.now().date())
+    # 查詢歷史 12 個月的客戶 email（使用全局 TODAY_STR 作為快取鍵，避免因日期範圍變化而重新查詢）
+    historical_emails = get_historical_emails(wc_url, wc_key, wc_secret, TODAY_STR)
     
     # 當週訂單中，email 不在歷史記錄中的訂單（視為新客戶訂單）
     # 同時處理空 email 的情況（視為新客戶）
