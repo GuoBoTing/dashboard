@@ -284,14 +284,13 @@ class MetaTokenManager:
             return new_token_data['access_token']
 
         except Exception as e:
+            # Token 刷新失敗 - 自動刪除無效的 token
             st.error(f"❌ Token 刷新失敗: {str(e)}")
-            st.warning("⚠️ Token 可能已完全過期，請刪除舊 Token 並重新生成")
+            st.warning("⚠️ Token 已完全過期，正在自動清除...")
 
-            # 自動刪除無效的 token
-            if st.button("🗑️ 清除無效 Token 並重新設定", type="primary"):
-                self.delete_token()
-                st.success("✅ 已清除舊 Token，請重新整理頁面")
-                st.rerun()
+            # 直接刪除無效 token，不使用按鈕（避免渲染問題）
+            self.delete_token()
+            st.info("✅ 已清除無效 Token，請重新整理頁面並設定新 Token")
 
             return None
 
