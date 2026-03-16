@@ -230,126 +230,6 @@ def calculate_payment_fees(orders_df):
 
 
 @st.cache_data(ttl=86400, show_spinner=False)  # 快取24小時（1天），每天只查詢一次
-def get_historical_emails(url, key, secret, before_date_str):
-    """
-    查詢歷史訂單的 email（最近 12 個月）
-
-    參數:
-        url: WooCommerce 商店 URL
-        key: Consumer Key
-        secret: Consumer Secret
-        before_date_str: 查詢終止日期字符串（格式：YYYY-MM-DD），往前推12個月
-
-    返回:
-        set: 歷史客戶 email 集合（小寫）
-    """
-    try:
-        clean_url = url.rstrip('/')
-        endpoint = f"{clean_url}/wp-json/wc/v3/orders"
-        auth = HTTPBasicAuth(key, secret)
-
-        # 將字符串轉換為日期對象
-        before_date = datetime.strptime(before_date_str, '%Y-%m-%d').date()
-        # 查詢範圍：before_date 往前推 12 個月
-        start_date = before_date - timedelta(days=365)
-
-        params = {
-            'after': start_date.strftime('%Y-%m-%d') + 'T00:00:00',
-            'before': before_date.strftime('%Y-%m-%d') + 'T23:59:59',
-            'per_page': 100,
-            'status': 'completed,processing,on-hold,wmp-in-transit,wmp-shipped,ry-at-cvs',
-            'orderby': 'date',
-            'order': 'desc'
-        }
-        
-        historical_emails = set()
-        page = 1
-        
-        with st.spinner("正在查詢歷史訂單 email（最近 12 個月）..."):
-            while True:
-                params['page'] = page
-                response = requests.get(endpoint, auth=auth, params=params, timeout=30)
-                
-                if response.status_code == 200:
-                    orders = response.json()
-                    if not orders:
-                        break
-                    
-                    # 只提取 email
-                    for order in orders:
-                        email = order.get('billing', {}).get('email', '')
-                        if email:
-                            historical_emails.add(email.lower())
-                    
-                    page += 1
-                    
-                    # 限制最多查詢 50 頁（5000 筆訂單）
-                    if page > 50:
-                        break
-                else:
-                    if page == 1:
-                        st.warning(f"無法獲取歷史訂單數據: {response.status_code}")
-                    break
-            
-            st.success(f"已載入 {len(historical_emails)} 個歷史客戶 email（最近 12 個月）")
-            return historical_emails
-            
-    except Exception as e:
-        st.warning(f"查詢歷史 email 時發生錯誤: {str(e)}")
-        return set()
-
-def calculate_new_customer_rate(orders_df, current_start_date, current_end_date, wc_url, wc_key, wc_secret):
-    """
-    計算新客率（新客戶訂單佔比）
-    
-    新客率 = 當週新客戶的訂單數 / 當週總訂單數
-    新客戶定義：email 在歷史數據中不存在
-    
-    參數:
-        orders_df: 所有訂單的 DataFrame
-        current_start_date: 當週開始日期
-        current_end_date: 當週結束日期
-    
-    返回:
-        new_customer_rate: 新客率（百分比）
-        new_orders_count: 新客戶訂單數
-        total_orders: 當週總訂單數
-    """
-    if orders_df.empty:
-        return 0.0, 0, 0
-    
-    # 創建副本避免修改原始 DataFrame
-    df = orders_df.copy()
-    df['date'] = pd.to_datetime(df['date'])
-    
-    # 當週訂單
-    current_week_orders = df[
-        (df['date'] >= pd.to_datetime(current_start_date)) & 
-        (df['date'] <= pd.to_datetime(current_end_date))
-    ]
-    
-    if current_week_orders.empty:
-        return 0.0, 0, 0
-    
-    # 查詢歷史 12 個月的客戶 email（使用月份級別的快取，同月內查詢共用快取）
-    # 將開始日期轉換為該月的第一天，作為快取鍵
-    cache_date_str = pd.to_datetime(current_start_date).strftime('%Y-%m-01')
-    historical_emails = get_historical_emails(wc_url, wc_key, wc_secret, cache_date_str)
-    
-    # 當週訂單中，email 不在歷史記錄中的訂單（視為新客戶訂單）
-    # 同時處理空 email 的情況（視為新客戶）
-    current_week_orders['email_lower'] = current_week_orders['email'].str.lower().fillna('')
-    new_customer_orders = current_week_orders[
-        (~current_week_orders['email_lower'].isin(historical_emails)) | 
-        (current_week_orders['email_lower'] == '')
-    ]
-    
-    # 計算新客率
-    total_orders = len(current_week_orders)
-    new_orders_count = len(new_customer_orders)
-    new_customer_rate = (new_orders_count / total_orders * 100) if total_orders > 0 else 0.0
-    
-    return new_customer_rate, new_orders_count, total_orders
 
 @st.cache_data(ttl=300, show_spinner=False)  # 快取5分鐘，平衡數據新鮮度和性能
 def get_enhanced_woocommerce_data(url, key, secret, start_date, end_date):
@@ -504,17 +384,14 @@ if len(date_range) == 2:
             roas = total_revenue / total_ad_spend if total_ad_spend > 0 else 0
             ctr = (total_clicks / total_impressions * 100) if total_impressions > 0 else 0
             
-            # 計算回購率
-            new_customer_rate, new_orders_count, total_orders = calculate_new_customer_rate(orders_df, start_date, end_date, wc_config["url"] if SECURE_MODE else wc_url, wc_config["consumer_key"] if SECURE_MODE else wc_key, wc_config["consumer_secret"] if SECURE_MODE else wc_secret)
-            
             # 營運總覽
             st.markdown("""<div class="clean-section-header"><h2>營運總覽</h2></div>""", unsafe_allow_html=True)
-            col1, col2, col3, col4, col5 = st.columns(5)
+            total_orders = len(orders_df)
+            col1, col2, col3, col4 = st.columns(4)
             with col1: st.metric("總營收", f"${total_revenue:,.0f}")
             with col2: st.metric("總訂單數", f"{total_orders:,}")
             with col3: st.metric("客單價", f"${avg_order_value:.0f}")
-            with col4: st.metric("新客率", f"{new_customer_rate:.1f}%")
-            with col5: st.metric("估計淨利", f"${estimated_net_profit:,.0f}")
+            with col4: st.metric("估計淨利", f"${estimated_net_profit:,.0f}")
             
             # 成本分析
             st.markdown(f"""<div class="clean-section-header"><h2>成本分析（總成本：${total_all_costs:,.0f}）</h2></div>""", unsafe_allow_html=True)
