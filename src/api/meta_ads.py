@@ -86,15 +86,22 @@ class MetaAdsAPI:
     
     def _validate_and_refresh_token(self) -> str:
         """驗證並刷新 token"""
-        # 檢查是否需要刷新
-        if self._is_token_expired():
-            st.info("檢測到 Token 即將過期，正在自動刷新...")
-            try:
-                self.refresh_long_lived_token()
-            except Exception as e:
-                st.error(f"自動刷新 Token 失敗: {str(e)}")
-                raise
-        
+        # 只有 session state 中有明確的過期時間且即將到期才主動刷新
+        # 避免每次 app 重啟就嘗試刷新（會導致 400 錯誤）
+        if 'meta_token_info' in st.session_state:
+            token_info = st.session_state.meta_token_info
+            if 'expires_at' in token_info:
+                try:
+                    expires_at = datetime.fromisoformat(token_info['expires_at'])
+                    if expires_at < datetime.now() + timedelta(days=7):
+                        st.info("檢測到 Token 即將過期，正在自動刷新...")
+                        try:
+                            self.refresh_long_lived_token()
+                        except Exception as e:
+                            st.error(f"自動刷新 Token 失敗: {str(e)}")
+                except Exception:
+                    pass
+
         return self.current_token
     
     def _make_api_request(self, endpoint: str, params: dict = None, method: str = 'GET') -> dict:
