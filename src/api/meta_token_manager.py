@@ -383,14 +383,29 @@ def show_token_manager_ui(app_id: str, app_secret: str) -> Optional[str]:
                 st.metric("剩餘天數", f"{days_left} 天")
 
         with col3:
-            if st.button("🔄 手動更新 Token"):
-                try:
-                    with st.spinner("更新中..."):
-                        new_data = manager.refresh_token(current_token)
-                        st.success("✅ Token 已更新！")
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"更新失敗: {str(e)}")
+            pass  # 移除手動更新按鈕（無法用過期 token 換新 token）
+
+        # 使用新短期 Token 更新（永遠顯示，方便隨時更換）
+        with st.expander("🔄 更換 Token（貼入新短期 Token）"):
+            st.info("從 Graph API Explorer 產生新 Token 後貼入此處，系統將轉換為長期 Token（60 天）")
+            new_short_token = st.text_input(
+                "新的短期 Access Token",
+                type="password",
+                placeholder="貼上從 Graph API Explorer 取得的 token",
+                key="new_short_token_input"
+            )
+            if st.button("🔄 轉換並更新", type="primary", key="update_token_btn"):
+                if new_short_token:
+                    try:
+                        with st.spinner("轉換中..."):
+                            token_data_new = manager.exchange_short_to_long_token(new_short_token)
+                            st.success(f"✅ 轉換成功！請複製下方長期 Token 更新到 Zeabur")
+                            st.code(token_data_new['access_token'])
+                            st.caption("複製上方完整 Token → Zeabur → Variables → META_LONG_LIVED_TOKEN")
+                    except Exception as e:
+                        st.error(f"轉換失敗: {str(e)}")
+                else:
+                    st.warning("請輸入新的短期 Token")
 
         # 顯示 Token（摺疊）
         with st.expander("🔍 查看 Token 資訊"):
