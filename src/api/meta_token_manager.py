@@ -69,6 +69,26 @@ class MetaTokenManager:
         Returns:
             包含長期 token 資訊的字典
         """
+        # 先用 debug_token 確認 token 屬於正確的 App
+        try:
+            debug_resp = requests.get(
+                self.debug_url,
+                params={'input_token': short_token, 'access_token': f"{self.app_id}|{self.app_secret}"},
+                timeout=10
+            )
+            if debug_resp.ok:
+                debug_data = debug_resp.json().get('data', {})
+                token_app_id = str(debug_data.get('app_id', ''))
+                if token_app_id and token_app_id != str(self.app_id):
+                    raise Exception(
+                        f"Token 屬於 App {token_app_id}，但設定的 App ID 是 {self.app_id}。\n"
+                        f"請在 Graph API Explorer 右上角切換到正確的 App 後重新產生 Token。"
+                    )
+                if not debug_data.get('is_valid', True):
+                    raise Exception("Token 已失效，請重新從 Graph API Explorer 產生新的 Token。")
+        except requests.exceptions.RequestException:
+            pass  # debug_token 失敗不阻擋，讓 exchange 自己報錯
+
         params = {
             'grant_type': 'fb_exchange_token',
             'client_id': self.app_id,

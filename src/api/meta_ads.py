@@ -137,9 +137,19 @@ class MetaAdsAPI:
                     try:
                         error_data = e.response.json()
                         error_code = error_data.get('error', {}).get('code')
-                        
+
                         # Token 無效或過期
                         if error_code in [190, 102, 463]:
+                            # 如果 token 來自環境變數，不嘗試自動刷新（會 400），直接告知使用者
+                            token_data = st.session_state.get('meta_token_data', {})
+                            if token_data.get('from_env'):
+                                st.error(
+                                    "❌ META_LONG_LIVED_TOKEN 已過期。\n\n"
+                                    "請至 [Meta Graph API Explorer](https://developers.facebook.com/tools/explorer/) "
+                                    "取得新 Token，在 Dashboard 側邊欄「Token 管理」轉換為長期 Token 後，"
+                                    "將新的長期 Token 更新到 Zeabur 環境變數 META_LONG_LIVED_TOKEN。"
+                                )
+                                break
                             if attempt < max_retries - 1:
                                 st.warning("Token 無效，嘗試刷新...")
                                 try:
@@ -148,7 +158,7 @@ class MetaAdsAPI:
                                     continue  # 重試
                                 except:
                                     pass
-                        
+
                     except json.JSONDecodeError:
                         pass
                 
